@@ -1,3 +1,8 @@
+# repo specific
+**.token
+.vscode/settings.json
+
+## TEMPLATE:
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]

@@ -1,0 +1,9 @@
+name: WitiSchlagGods
+channels:
+  - conda-forge
+dependencies:
+  - pip
+  - python=3.10
+  - pip:
+      - numpy
+      - python-telegram-bot==20.0a2
