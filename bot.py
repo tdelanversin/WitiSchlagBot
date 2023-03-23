@@ -140,9 +140,11 @@ async def summarize(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         await context.bot.send_message(
             chat_id=update.effective_user.id,
-            text=f"Here is the summary of the last 100 messages in {update.effective_chat.title}:\n"
+            text=f"Here is the summary of the last {len(backlog)} messages in {update.effective_chat.title}:\n"
             + f"{summary[0]['summary_text']}",  # type: ignore
         )
+
+    await context.bot.delete_message(update.effective_chat.id, update.effective_message.id)
 
     logging.info(
         f"Sent summary to <{update.effective_user.name}> "
