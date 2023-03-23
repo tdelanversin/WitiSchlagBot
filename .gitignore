@@ -1,5 +1,6 @@
 # repo specific
-**.token
+token.json
+TOKEN.token
 .vscode/settings.json
 
 ## TEMPLATE:

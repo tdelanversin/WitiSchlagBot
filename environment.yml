@@ -1,4 +1,4 @@
-name: WitiSchlagGods
+name: witi
 channels:
   - conda-forge
 dependencies:
@@ -7,3 +7,9 @@ dependencies:
   - pip:
       - numpy
       - python-telegram-bot==20.0a2
+      - transformers
+      - sentencepiece
+      - torch
+      - tensorflow
+      - "jax[cpu]"
+      - protobuf==3.20.*
