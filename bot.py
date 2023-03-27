@@ -15,15 +15,16 @@ from telegram.ext import (
     CommandHandler,
 )
 
-from transformers import pipeline  # type: ignore
+SIMPLIFY = True
 
-summarizer = pipeline("summarization", model="philschmid/bart-large-cnn-samsum")
+if not SIMPLIFY:
+    from transformers import pipeline  # type: ignore
 
+    summarizer = pipeline("summarization", model="philschmid/bart-large-cnn-samsum")
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
 )
-
 
 MESSAGE_BACKLOG = {}
 BACKLOG_LENGTH = 100
@@ -63,6 +64,15 @@ MEAL_FORMAT = """{label} <i>({price_student}, {price_staff}, {price_extern})</i>
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if SIMPLIFY:
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text="I'm sorry, but I'm not working right now. "
+            + "I'm currently being rewritten to be simpler and more efficient. "
+            + "I'll be back soon!",
+        )
+        return
+
     if update.effective_chat.id in MESSAGE_BACKLOG:
         await context.bot.send_message(
             chat_id=update.effective_chat.id, text="I'm already listening to this chat."
@@ -79,7 +89,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         chat_id=update.effective_chat.id,
         text="I will now start listening to this chat. "
         + f"I will save the last {backlog_length} "
-        + "messages and summarize them to you if you ask me to.",
+        + "messages and will summarize them to you if you ask me to.",
     )
 
     logging.info(
@@ -155,6 +165,8 @@ async def clear(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def summarize(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+
     backlog = MESSAGE_BACKLOG[update.effective_chat.id]
     logging.info(
         f"Summarizing {update.effective_chat.title}"
@@ -219,7 +231,7 @@ async def generic_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def favorite_mensa(context: ContextTypes.DEFAULT_TYPE) -> None:
     job = context.job
-    message = ""
+    message = "Favotire mensas:\n\n"
     for mensa in FAVORITE_MENSAS:
         meals = pyMensa.get_meals(mensa)
         if len(meals) == 0:
@@ -236,7 +248,7 @@ async def favorite_mensa(context: ContextTypes.DEFAULT_TYPE) -> None:
             )
 
         formated_meal = "\n\n".join([meal_format(m) for m in meals])
-        message += f"<h3>{mensa}<\h3>:\n\n{formated_meal}\n\n"
+        message += f"          <b><i>{mensa.upper()}</i></b>:\n\n{formated_meal}\n\n"
 
     await context.bot.send_message(
         chat_id=job.chat_id,
@@ -255,22 +267,14 @@ async def set_dayly_mensa(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         )
         return
 
-    # context.job_queue.run_daily(
-    #     favorite_mensa,
-    #     time=time(10),
-    #     days=(1, 2, 3, 4, 5),
-    #     chat_id=chat_id,
-    #     name=str(chat_id),
-    # )
-    context.job_queue.run_repeating(
+    context.job_queue.run_daily(
         favorite_mensa,
-        interval=timedelta(minutes=1),
-        first=0,
-        last=timedelta(minutes=5),
+        time=time(10),
+        days=(1, 2, 3, 4, 5),
         chat_id=chat_id,
         name=str(chat_id),
     )
-    await update.effective_message.reply_text("Successfully set dayly mensa job!")
+    await update.effective_message.reply_text("Successfully set dayly mensa job for favorite mensas!")
 
     logging.info(
         f"Set dayly mensa job for {update.effective_chat.title} "
