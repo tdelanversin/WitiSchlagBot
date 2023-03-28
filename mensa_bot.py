@@ -44,7 +44,7 @@ async def mensa(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def generic_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     command = update.effective_message.text[1:].split("@")[0]
     if command in MENSAS:  # type: ignore
-        await mensa_menu(update.effective_message.text[1:], update, context)
+        await mensa_menu(command, update, context)
         return
     logging.info(
         f"Received command {update.effective_message.text} "
