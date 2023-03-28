@@ -193,24 +193,32 @@ async def add_favorite_mensa(
 async def remove_favorite_mensa(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
-    if len(context.args) == 0 or context.args[0] not in MENSAS:  # type: ignore
-        await update.message.reply_text(
-            "Please provide a valid mensa name. "
-            + f"Valid mensas are: \n{', '.join(MENSAS)}"
-        )
-        return
     if update.effective_message.chat_id not in FAVORITE_MENSAS:
         await update.message.reply_text(
             "Please set a daily mensa job first with /set_daily_mensa"
         )
         return
-    FAVORITE_MENSAS[update.effective_message.chat_id].remove(context.args[0])  # type: ignore
+    
+    success = []
+    for arg in context.args:  # type: ignore
+        if arg not in MENSAS:
+            await update.message.reply_text(
+                f"{arg} is not a valid mensa name. "
+                + f"Valid mensas are: \n{', '.join(MENSAS)}"
+            )
+            continue
+
+        FAVORITE_MENSAS[update.effective_message.chat_id].remove(arg)  # type: ignore
+        success.append(arg)
+
+    success[-1] = "and " + success[-1]
+
     await update.message.reply_text(
-        f"Successfully removed {context.args[0]} from favorite mensas!"  # type: ignore
+        f"Successfully removed {', '.join(success)} from favorite mensas!"  # type: ignore
     )
 
     logging.info(
-        f"Removed {context.args[0]} from favorite mensas for {update.effective_chat.title} "  # type: ignore
+        f"Removed {', '.join(success)} from favorite mensas for {update.effective_chat.title} "  # type: ignore
         + f"with id {update.effective_chat.id}"
     )
 
