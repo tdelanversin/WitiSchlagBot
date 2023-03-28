@@ -57,7 +57,7 @@ async def mensa_favorites(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if chat_id not in FAVORITE_MENSAS:
         await context.bot.send_message(
             chat_id=update.effective_chat.id,
-            text="You can only use this command with an active dayly menu job.",
+            text="You can only use this command with an active daily menu job.",
         )
         return
     if len(FAVORITE_MENSAS[chat_id]) == 0:
@@ -112,45 +112,45 @@ def format_favorites(chat_id):
     return message
 
 
-async def set_dayly_mensa(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def set_daily_mensa(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     chat_id = update.effective_message.chat_id
     if context.job_queue.get_jobs_by_name(str(chat_id)):
         await update.effective_message.reply_text(
-            "You already have an active dayly mensa job!"
+            "You already have an active daily mensa job!"
         )
         return
 
     FAVORITE_MENSAS[chat_id] = set()
     context.job_queue.run_daily(
         favorite_job,
-        time=time(hour=11, minute=22, second=0),
+        time=time(hour=10, minute=0, second=0),
         days=(1, 2, 3, 4, 5),
         chat_id=chat_id,
         name=str(chat_id),
     )
     await update.effective_message.reply_text(
-        "Successfully set dayly mensa job for favorite mensas!"
+        "Successfully set daily mensa job for favorite mensas!"
     )
 
     logging.info(
-        f"Set dayly mensa job for {update.effective_chat.title} "
+        f"Set daily mensa job for {update.effective_chat.title} "
         + f"with id {update.effective_chat.id}"
     )
 
 
-async def unset_dayly_mensa(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def unset_daily_mensa(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     chat_id = update.message.chat_id
     current_jobs = context.job_queue.get_jobs_by_name(str(chat_id))
     if not current_jobs:
-        await update.message.reply_text("You have no active dayly mensa job!")
+        await update.message.reply_text("You have no active daily mensa job!")
         return
     FAVORITE_MENSAS.pop(chat_id)
     for job in current_jobs:
         job.schedule_removal()
-    await update.message.reply_text("Successfully unset dayly mensa job!")
+    await update.message.reply_text("Successfully unset daily mensa job!")
 
     logging.info(
-        f"Unset dayly mensa job for {update.effective_chat.title} "
+        f"Unset daily mensa job for {update.effective_chat.title} "
         + f"with id {update.effective_chat.id}"
     )
 
@@ -166,7 +166,7 @@ async def add_favorite_mensa(
         return
     if update.effective_message.chat_id not in FAVORITE_MENSAS:
         await update.message.reply_text(
-            "Please set a dayly mensa job first with /set_dayly_mensa"
+            "Please set a daily mensa job first with /set_daily_mensa"
         )
         return
     FAVORITE_MENSAS[update.effective_message.chat_id].add(context.args[0])  # type: ignore
@@ -191,7 +191,7 @@ async def remove_favorite_mensa(
         return
     if update.effective_message.chat_id not in FAVORITE_MENSAS:
         await update.message.reply_text(
-            "Please set a dayly mensa job first with /set_dayly_mensa"
+            "Please set a daily mensa job first with /set_daily_mensa"
         )
         return
     FAVORITE_MENSAS[update.effective_message.chat_id].remove(context.args[0])  # type: ignore
@@ -250,11 +250,11 @@ if __name__ == "__main__":
 
     commands = (
         "mensa - Get the menu for a mensa\n"
-        "set - Set a dayly mensa job for your favorite mensas\n"
-        "unset - Unset a dayly mensa job\n"
+        "set - Set a daily mensa job for your favorite mensas\n"
+        "unset - Unset a daily mensa job\n"
         "add - Add a mensa to your favorite mensas\n"
         "remove - Remove a mensa from your favorite mensas\n"
-        "favorite - Get the menu for your favorite mensas. Only Works if you have a dayly mensa job set\n"
+        "favorite - Get the menu for your favorite mensas. Only Works if you have a daily mensa job set\n"
     )
 
     commands += "\n".join(
@@ -265,8 +265,8 @@ if __name__ == "__main__":
 
     handlers = [
         CommandHandler("mensa", mensa),
-        CommandHandler("set", set_dayly_mensa),
-        CommandHandler("unset", unset_dayly_mensa),
+        CommandHandler("set", set_daily_mensa),
+        CommandHandler("unset", unset_daily_mensa),
         CommandHandler("add", add_favorite_mensa),
         CommandHandler("remove", remove_favorite_mensa),
         CommandHandler("favorite", mensa_favorites),
