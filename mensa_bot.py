@@ -14,7 +14,9 @@ from telegram.ext import (
 )
 
 logging.basicConfig(
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", 
+    level=logging.INFO,
+    filename="mensa_bot.log"
 )
 
 MENSAS = [mensa.aliases[0] for mensa in available]
