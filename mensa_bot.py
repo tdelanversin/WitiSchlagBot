@@ -1,7 +1,19 @@
 import logging
-from mensa import get_meals, get_mensa, available
+import traceback
+import html
+import json
 from datetime import time
-import telegram
+
+from mensa import get_mensa, available
+from mensa_helper import (
+    format_favorites, 
+    mensa_menu, 
+    update_favorite_pickle, 
+    load_favorite_pickle,
+)
+
+from telegram.constants import ParseMode
+from telegram.error import NetworkError
 from telegram import (
     Update,
 )
@@ -14,16 +26,43 @@ from telegram.ext import (
 )
 
 logging.basicConfig(
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", 
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     level=logging.INFO,
-    filename="mensa_bot.log"
+    filename="mensa_bot.log",
 )
 
+DEVELOPER_CHAT_ID = 631157495
+IGNORED_ERRORS = [NetworkError]
 MENSAS = [mensa.aliases[0] for mensa in available]
 FAVORITE_MENSAS = {}
-MEAL_FORMAT = """{label} <i>({price_student}, {price_staff}, {price_extern})</i>
-<b>{meal_name}</b>
-{meal_description}"""
+
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_chat.id != DEVELOPER_CHAT_ID:
+        return
+    
+    FAVORITE_MENSAS = load_favorite_pickle()
+
+    for chat_id in FAVORITE_MENSAS:
+        context.job_queue.run_daily(
+            favorite_job,
+            time=time(10, 00),
+            days=(1, 2, 3, 4, 5),
+            chat_id=chat_id,
+            name=str(chat_id),
+        )
+
+    await context.bot.send_message(
+        chat_id=update.effective_chat.id,
+        text="I'm back online!",
+    )
+
+    logging.info(
+        f"Started bot with id {context.bot.id} "
+        + f"and name {context.bot.name} "
+        + f"by {update.effective_user.name} "
+        + f"with id {update.effective_user.id}"
+    )
 
 
 async def mensa(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -48,6 +87,7 @@ async def generic_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if command in MENSAS:  # type: ignore
         await mensa_menu(command, update, context)
         return
+    
     logging.info(
         f"Received command {update.effective_message.text} "
         + f"from {update.effective_user.name} "
@@ -73,46 +113,20 @@ async def mensa_favorites(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await context.bot.send_message(
         chat_id=chat_id,
-        text=format_favorites(chat_id),
-        parse_mode=telegram.constants.ParseMode.HTML,  # type: ignore
+        text=format_favorites(chat_id, FAVORITE_MENSAS),
+        parse_mode=ParseMode.HTML,
     )
 
 
 async def favorite_job(context: ContextTypes.DEFAULT_TYPE) -> None:
     job = context.job
-    message = format_favorites(job.chat_id)
+    message = format_favorites(job.chat_id, FAVORITE_MENSAS)
 
     await context.bot.send_message(
-        chat_id=job.chat_id,
-        text=message,
-        parse_mode=telegram.constants.ParseMode.HTML,  # type: ignore
+        chat_id=job.chat_id, text=message, parse_mode=ParseMode.HTML
     )
 
     logging.info(f"Sent favorite mensas to chat with id {job.chat_id}")
-
-
-def format_favorites(chat_id):
-    message = "Favotire mensas:\n\n"
-
-    def meal_format(meal):
-        return MEAL_FORMAT.format(
-            label=meal.label,
-            price_student=meal.price_student,
-            price_staff=meal.price_staff,
-            price_extern=meal.price_extern,
-            meal_name=meal.description[0],
-            meal_description=" ".join(meal.description[1:]),
-        )
-
-    for mensa in FAVORITE_MENSAS[chat_id]:
-        meals = get_meals(mensa)
-        if len(meals) == 0:
-            continue
-
-        formated_meal = "\n\n".join([meal_format(m) for m in meals])
-        message += f"          <b><i>{mensa.upper()}</i></b>:\n\n{formated_meal}\n\n"
-
-    return message
 
 
 async def set_daily_mensa(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -126,7 +140,7 @@ async def set_daily_mensa(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     FAVORITE_MENSAS[chat_id] = set()
     context.job_queue.run_daily(
         favorite_job,
-        time=time(hour=10, minute=0, second=0),
+        time=time(10, 00),
         days=(1, 2, 3, 4, 5),
         chat_id=chat_id,
         name=str(chat_id),
@@ -134,6 +148,8 @@ async def set_daily_mensa(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     await update.effective_message.reply_text(
         "Successfully set daily mensa job for favorite mensas!"
     )
+
+    update_favorite_pickle(FAVORITE_MENSAS)
 
     logging.info(
         f"Set daily mensa job for {update.effective_chat.title} "
@@ -152,6 +168,8 @@ async def unset_daily_mensa(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         job.schedule_removal()
     await update.message.reply_text("Successfully unset daily mensa job!")
 
+    update_favorite_pickle(FAVORITE_MENSAS)
+
     logging.info(
         f"Unset daily mensa job for {update.effective_chat.title} "
         + f"with id {update.effective_chat.id}"
@@ -166,7 +184,7 @@ async def add_favorite_mensa(
             "Please set a daily mensa job first with /set_daily_mensa"
         )
         return
-    
+
     success = []
     for arg in context.args:  # type: ignore
         if arg not in MENSAS:
@@ -176,7 +194,6 @@ async def add_favorite_mensa(
             )
             continue
 
-
         FAVORITE_MENSAS[update.effective_message.chat_id].add(arg)  # type: ignore
         success.append(arg)
 
@@ -185,6 +202,8 @@ async def add_favorite_mensa(
     await update.message.reply_text(
         f"Successfully added {', '.join(success)} to favorite mensas!"  # type: ignore
     )
+
+    update_favorite_pickle(FAVORITE_MENSAS)
 
     logging.info(
         f"Added {', '.join(success)} to favorite mensas for {update.effective_chat.title} "  # type: ignore
@@ -200,7 +219,7 @@ async def remove_favorite_mensa(
             "Please set a daily mensa job first with /set_daily_mensa"
         )
         return
-    
+
     success = []
     for arg in context.args:  # type: ignore
         if arg not in MENSAS:
@@ -219,47 +238,43 @@ async def remove_favorite_mensa(
         f"Successfully removed {', '.join(success)} from favorite mensas!"  # type: ignore
     )
 
+    update_favorite_pickle(FAVORITE_MENSAS)
+
     logging.info(
         f"Removed {', '.join(success)} from favorite mensas for {update.effective_chat.title} "  # type: ignore
         + f"with id {update.effective_chat.id}"
     )
 
 
-async def mensa_menu(mensa, update, context):
-    meals = get_meals(mensa)
-    if len(meals) == 0:
+async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Log the error and send a telegram message to notify the developer."""
+    if False and any([type(context.error) == err for err in IGNORED_ERRORS]):
+        logging.warning(f"Ignoring error or type: {type(context.error).__name__}")
+        logging.debug(f"Error: {context.error}")
         await context.bot.send_message(
-            chat_id=update.effective_chat.id,
-            text="I couldn't find a menu for today. " + "Please try again tomorrow.",
-        )
-        logging.info(
-            f"Couldn't find a menu for {mensa} today "
-            + f"for {update.effective_chat.title} "
-            + f"with id {update.effective_chat.id}"
+            chat_id=DEVELOPER_CHAT_ID,
+            text=f"Ignoring error or type: {type(context.error).__name__}",
         )
         return
 
-    def meal_format(meal):
-        return MEAL_FORMAT.format(
-            label=meal.label,
-            price_student=meal.price_student,
-            price_staff=meal.price_staff,
-            price_extern=meal.price_extern,
-            meal_name=meal.description[0],
-            meal_description=" ".join(meal.description[1:]),
-        )
+    logging.error("Exception while handling an update:", exc_info=context.error)
+    tb_list = traceback.format_exception(
+        None, context.error, context.error.__traceback__
+    )
+    tb_string = "".join(tb_list)
 
-    formated_meal = "\n\n".join([meal_format(m) for m in meals])
-
-    await context.bot.send_message(
-        chat_id=update.effective_chat.id,
-        text=formated_meal,
-        parse_mode=telegram.constants.ParseMode.HTML,  # type: ignore
+    update_str = update.to_dict() if isinstance(update, Update) else str(update)
+    message = (
+        f"An exception was raised while handling an update\n"
+        f"<pre>update = {html.escape(json.dumps(update_str, indent=2, ensure_ascii=False))}"
+        "</pre>\n\n"
+        f"<pre>context.chat_data = {html.escape(str(context.chat_data))}</pre>\n\n"
+        f"<pre>context.user_data = {html.escape(str(context.user_data))}</pre>\n\n"
+        f"<pre>{html.escape(tb_string)}</pre>"
     )
 
-    logging.info(
-        f"Sent menu for {mensa} to {update.effective_chat.title} "
-        + f"with id {update.effective_chat.id}"
+    await context.bot.send_message(
+        chat_id=DEVELOPER_CHAT_ID, text=message, parse_mode=ParseMode.HTML
     )
 
 
@@ -284,6 +299,7 @@ if __name__ == "__main__":
     logging.info(f"Registered commands:\n{commands}")
 
     handlers = [
+        CommandHandler("start", start),
         CommandHandler("mensa", mensa),
         CommandHandler("set", set_daily_mensa),
         CommandHandler("unset", unset_daily_mensa),
@@ -294,5 +310,6 @@ if __name__ == "__main__":
     ]
 
     application.add_handlers(handlers)
+    application.add_error_handler(error_handler)
 
     application.run_polling()
