@@ -6,9 +6,9 @@ from datetime import time
 
 from mensa import get_mensa, available
 from mensa_helper import (
-    format_favorites, 
-    mensa_menu, 
-    update_favorite_pickle, 
+    format_favorites,
+    mensa_menu,
+    update_favorite_pickle,
     load_favorite_pickle,
 )
 
@@ -38,9 +38,10 @@ FAVORITE_MENSAS = {}
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    global FAVORITE_MENSAS
     if update.effective_chat.id != DEVELOPER_CHAT_ID:
         return
-    
+
     FAVORITE_MENSAS = load_favorite_pickle()
 
     for chat_id in FAVORITE_MENSAS:
@@ -87,7 +88,7 @@ async def generic_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if command in MENSAS:  # type: ignore
         await mensa_menu(command, update, context)
         return
-    
+
     logging.info(
         f"Received command {update.effective_message.text} "
         + f"from {update.effective_user.name} "
