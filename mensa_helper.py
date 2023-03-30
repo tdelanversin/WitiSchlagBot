@@ -2,6 +2,17 @@ import logging
 import pickle
 from mensa import get_meals
 from telegram.constants import ParseMode
+import numpy as np
+
+
+REACTION_EMOJIS = np.array([
+    '🔥', '👍', '👎', '💩', '🥰', '😍', '❤️',  '😭', '🫡', '🤮', '❤️‍🔥', '🌭', 
+    '😁', '🎉', '🐳', '🤯', '👏', '🤔', '🤬', '😱', '🤩', '😢', '🙏', '🕊', 
+    '🤡', '🥱', '🥴', '🌚', '💯', '😂', '⚡️',  '🍌', '🏆', '💔', '🤨', '😐', 
+    '🍓', '🍾', '💋', '🖕', '😈', '😴', '🤓', '👻', '👨‍💻', '👀', '🎃', '🙈', 
+    '😇', '😨', '🤝', '✍️',  '🤗', '🎅', '🎄', '☃️',  '💅', '🤪', '🗿', '🆒', 
+    '💘', '🙉', '🦄', '😘', '💊', '🙊', '😎', '👾', '🤷', '🤷‍♀️', '🤷‍♂️', '😡', 
+])
 
 
 def meal_format(meal):
@@ -18,13 +29,15 @@ def meal_format(meal):
 def format_favorites(chat_id, favorite_mensas):
     message = "Favorite mensas:\n\n"
 
-    for mensa in favorite_mensas[chat_id]:
+    mensa_emojis = np.random.permutation(REACTION_EMOJIS)[:len(favorite_mensas[chat_id])]
+
+    for emoji, mensa in zip(mensa_emojis, favorite_mensas[chat_id]):
         meals = get_meals(mensa)
         if len(meals) == 0:
             continue
 
         formated_meal = "\n\n".join([meal_format(m) for m in meals])
-        message += f"          <b><i>{mensa.upper()}</i></b>:\n\n{formated_meal}\n\n"
+        message += f"     {emoji} <b><i>{mensa.upper()}</i></b>:\n\n{formated_meal}\n\n"
 
     return message
 
