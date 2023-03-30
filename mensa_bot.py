@@ -3,6 +3,7 @@ import traceback
 import html
 import json
 from datetime import time
+import pytz
 
 from mensa import get_mensa, available
 from mensa_helper import (
@@ -29,6 +30,7 @@ logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     level=logging.INFO,
     filename="mensa_bot.log",
+    filemode="w",
 )
 
 DEVELOPER_CHAT_ID = 631157495
@@ -36,6 +38,7 @@ IGNORED_ERRORS = [NetworkError]
 ERRORS_TO_LOG = []
 MENSAS = [mensa.aliases[0] for mensa in available]
 FAVORITE_MENSAS = {}
+FAVORITE_TIME = time(10, 00, tzinfo=pytz.timezone("Europe/Zurich"))
 TIMES = ["11:30 - 12:00", "12:00 - 12:30", "12:30 - 13:00", "13:00 - 13:30"]
 
 
@@ -49,7 +52,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     for chat_id in FAVORITE_MENSAS:
         context.job_queue.run_daily(
             favorite_job,
-            time=time(10, 00),
+            time=FAVORITE_TIME,
             days=(1, 2, 3, 4, 5),
             chat_id=chat_id,
             name=str(chat_id),
@@ -188,7 +191,7 @@ async def set_daily_mensa(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     FAVORITE_MENSAS[chat_id] = set()
     context.job_queue.run_daily(
         favorite_job,
-        time=time(10, 00),
+        time=FAVORITE_TIME,
         days=(1, 2, 3, 4, 5),
         chat_id=chat_id,
         name=str(chat_id),
