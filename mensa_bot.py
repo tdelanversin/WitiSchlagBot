@@ -36,6 +36,7 @@ IGNORED_ERRORS = [NetworkError]
 ERRORS_TO_LOG = []
 MENSAS = [mensa.aliases[0] for mensa in available]
 FAVORITE_MENSAS = {}
+TIMES = ["11:30 - 12:00", "12:00 - 12:30", "12:30 - 13:00", "13:00 - 13:30"]
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -73,8 +74,7 @@ async def error_log(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await context.bot.send_message(
         chat_id=update.effective_chat.id,
-        text="The following errors occured:\n"
-        + "\n".join(ERRORS_TO_LOG),
+        text="The following errors occured:\n" + "\n".join(ERRORS_TO_LOG),
     )
 
 
@@ -128,6 +128,41 @@ async def mensa_favorites(update: Update, context: ContextTypes.DEFAULT_TYPE):
         chat_id=chat_id,
         text=format_favorites(chat_id, FAVORITE_MENSAS),
         parse_mode=ParseMode.HTML,
+    )
+
+
+async def make_poll(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.effective_chat.id
+    if chat_id not in FAVORITE_MENSAS:
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text="You can only use this command with an active daily menu job.",
+        )
+        return
+    if len(FAVORITE_MENSAS[chat_id]) == 0:
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text="You don't have any favorite mensas yet. "
+            + "Use /add to add a mensa to your favorites.",
+        )
+        return
+
+    await context.bot.send_poll(
+        chat_id=chat_id,
+        question="What time do you want to eat at today?",
+        options=TIMES,
+        type="regular",
+        allows_multiple_answers=True,
+        is_anonymous=False,
+    )
+
+    await context.bot.send_poll(
+        chat_id=chat_id,
+        question="Which mensa do you want to eat at today?",
+        options=[get_mensa(mensa).name for mensa in FAVORITE_MENSAS[chat_id]],
+        type="regular",
+        allows_multiple_answers=True,
+        is_anonymous=False,
     )
 
 
@@ -301,6 +336,7 @@ if __name__ == "__main__":
         "add - Add a mensa to your favorite mensas\n"
         "remove - Remove a mensa from your favorite mensas\n"
         "favorite - Get the menu for your favorite mensas. Only Works if you have a daily mensa job set\n"
+        "poll - Create a poll for the menu of a mensa\n"
     )
 
     commands += "\n".join(
@@ -318,6 +354,7 @@ if __name__ == "__main__":
         CommandHandler("add", add_favorite_mensa),
         CommandHandler("remove", remove_favorite_mensa),
         CommandHandler("favorite", mensa_favorites),
+        CommandHandler("poll", make_poll),
         MessageHandler(filters.COMMAND, generic_command),
     ]
 
