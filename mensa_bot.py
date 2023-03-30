@@ -33,6 +33,7 @@ logging.basicConfig(
 
 DEVELOPER_CHAT_ID = 631157495
 IGNORED_ERRORS = [NetworkError]
+ERRORS_TO_LOG = []
 MENSAS = [mensa.aliases[0] for mensa in available]
 FAVORITE_MENSAS = {}
 
@@ -63,6 +64,17 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         + f"and name {context.bot.name} "
         + f"by {update.effective_user.name} "
         + f"with id {update.effective_user.id}"
+    )
+
+
+async def error_log(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_chat.id != DEVELOPER_CHAT_ID:
+        return
+
+    await context.bot.send_message(
+        chat_id=update.effective_chat.id,
+        text="The following errors occured:\n"
+        + "\n".join(ERRORS_TO_LOG),
     )
 
 
@@ -249,7 +261,7 @@ async def remove_favorite_mensa(
 
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Log the error and send a telegram message to notify the developer."""
-    if False and any([type(context.error) == err for err in IGNORED_ERRORS]):
+    if any([type(context.error) == err for err in IGNORED_ERRORS]):
         logging.warning(f"Ignoring error or type: {type(context.error).__name__}")
         logging.debug(f"Error: {context.error}")
         await context.bot.send_message(
@@ -274,9 +286,7 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> N
         f"<pre>{html.escape(tb_string)}</pre>"
     )
 
-    await context.bot.send_message(
-        chat_id=DEVELOPER_CHAT_ID, text=message, parse_mode=ParseMode.HTML
-    )
+    ERRORS_TO_LOG.append(message)
 
 
 if __name__ == "__main__":
@@ -301,6 +311,7 @@ if __name__ == "__main__":
 
     handlers = [
         CommandHandler("start", start),
+        CommandHandler("log", error_log),
         CommandHandler("mensa", mensa),
         CommandHandler("set", set_daily_mensa),
         CommandHandler("unset", unset_daily_mensa),
