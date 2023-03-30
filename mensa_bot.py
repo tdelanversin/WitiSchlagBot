@@ -1,19 +1,18 @@
 import logging
-import traceback
-import html
-import json
 from datetime import time
+import pytz
 
 from mensa import get_mensa, available
-from mensa_helper import (
+from bot_helpers import (
     format_favorites,
     mensa_menu,
     update_favorite_pickle,
     load_favorite_pickle,
+    error_handler,
+    error_log,
 )
 
 from telegram.constants import ParseMode
-from telegram.error import NetworkError
 from telegram import (
     Update,
 )
@@ -29,13 +28,15 @@ logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     level=logging.INFO,
     filename="mensa_bot.log",
+    filemode="w",
 )
 
 DEVELOPER_CHAT_ID = 631157495
-IGNORED_ERRORS = [NetworkError]
 ERRORS_TO_LOG = []
 MENSAS = [mensa.aliases[0] for mensa in available]
 FAVORITE_MENSAS = {}
+FAVORITE_TIME = time(10, 00, tzinfo=pytz.timezone("Europe/Zurich"))
+TIMES = ["11:30 - 12:00", "12:00 - 12:30", "12:30 - 13:00", "13:00 - 13:30"]
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -48,7 +49,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     for chat_id in FAVORITE_MENSAS:
         context.job_queue.run_daily(
             favorite_job,
-            time=time(10, 00),
+            time=FAVORITE_TIME,
             days=(1, 2, 3, 4, 5),
             chat_id=chat_id,
             name=str(chat_id),
@@ -67,15 +68,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
-async def error_log(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_chat.id != DEVELOPER_CHAT_ID:
-        return
-
-    await context.bot.send_message(
-        chat_id=update.effective_chat.id,
-        text="The following errors occured:\n"
-        + "\n".join(ERRORS_TO_LOG),
-    )
 
 
 async def mensa(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -131,6 +123,41 @@ async def mensa_favorites(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
+async def make_poll(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.effective_chat.id
+    if chat_id not in FAVORITE_MENSAS:
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text="You can only use this command with an active daily menu job.",
+        )
+        return
+    if len(FAVORITE_MENSAS[chat_id]) == 0:
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text="You don't have any favorite mensas yet. "
+            + "Use /add to add a mensa to your favorites.",
+        )
+        return
+
+    await context.bot.send_poll(
+        chat_id=chat_id,
+        question="What time do you want to eat at today?",
+        options=TIMES,
+        type="regular",
+        allows_multiple_answers=True,
+        is_anonymous=False,
+    )
+
+    await context.bot.send_poll(
+        chat_id=chat_id,
+        question="Which mensa do you want to eat at today?",
+        options=[get_mensa(mensa).name for mensa in FAVORITE_MENSAS[chat_id]],
+        type="regular",
+        allows_multiple_answers=True,
+        is_anonymous=False,
+    )
+
+
 async def favorite_job(context: ContextTypes.DEFAULT_TYPE) -> None:
     job = context.job
     message = format_favorites(job.chat_id, FAVORITE_MENSAS)
@@ -153,7 +180,7 @@ async def set_daily_mensa(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     FAVORITE_MENSAS[chat_id] = set()
     context.job_queue.run_daily(
         favorite_job,
-        time=time(10, 00),
+        time=FAVORITE_TIME,
         days=(1, 2, 3, 4, 5),
         chat_id=chat_id,
         name=str(chat_id),
@@ -259,36 +286,6 @@ async def remove_favorite_mensa(
     )
 
 
-async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Log the error and send a telegram message to notify the developer."""
-    if any([type(context.error) == err for err in IGNORED_ERRORS]):
-        logging.warning(f"Ignoring error or type: {type(context.error).__name__}")
-        logging.debug(f"Error: {context.error}")
-        await context.bot.send_message(
-            chat_id=DEVELOPER_CHAT_ID,
-            text=f"Ignoring error or type: {type(context.error).__name__}",
-        )
-        return
-
-    logging.error("Exception while handling an update:", exc_info=context.error)
-    tb_list = traceback.format_exception(
-        None, context.error, context.error.__traceback__
-    )
-    tb_string = "".join(tb_list)
-
-    update_str = update.to_dict() if isinstance(update, Update) else str(update)
-    message = (
-        f"An exception was raised while handling an update\n"
-        f"<pre>update = {html.escape(json.dumps(update_str, indent=2, ensure_ascii=False))}"
-        "</pre>\n\n"
-        f"<pre>context.chat_data = {html.escape(str(context.chat_data))}</pre>\n\n"
-        f"<pre>context.user_data = {html.escape(str(context.user_data))}</pre>\n\n"
-        f"<pre>{html.escape(tb_string)}</pre>"
-    )
-
-    ERRORS_TO_LOG.append(message)
-
-
 if __name__ == "__main__":
     with open("GRAILLE.token") as f:
         token = f.readlines()[0]
@@ -301,6 +298,7 @@ if __name__ == "__main__":
         "add - Add a mensa to your favorite mensas\n"
         "remove - Remove a mensa from your favorite mensas\n"
         "favorite - Get the menu for your favorite mensas. Only Works if you have a daily mensa job set\n"
+        "poll - Create a poll for the menu of a mensa\n"
     )
 
     commands += "\n".join(
@@ -318,6 +316,7 @@ if __name__ == "__main__":
         CommandHandler("add", add_favorite_mensa),
         CommandHandler("remove", remove_favorite_mensa),
         CommandHandler("favorite", mensa_favorites),
+        CommandHandler("poll", make_poll),
         MessageHandler(filters.COMMAND, generic_command),
     ]
 
