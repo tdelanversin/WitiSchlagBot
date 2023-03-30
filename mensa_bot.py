@@ -1,20 +1,18 @@
 import logging
-import traceback
-import html
-import json
 from datetime import time
 import pytz
 
 from mensa import get_mensa, available
-from mensa_helper import (
+from bot_helpers import (
     format_favorites,
     mensa_menu,
     update_favorite_pickle,
     load_favorite_pickle,
+    error_handler,
+    error_log,
 )
 
 from telegram.constants import ParseMode
-from telegram.error import NetworkError
 from telegram import (
     Update,
 )
@@ -34,7 +32,6 @@ logging.basicConfig(
 )
 
 DEVELOPER_CHAT_ID = 631157495
-IGNORED_ERRORS = [NetworkError]
 ERRORS_TO_LOG = []
 MENSAS = [mensa.aliases[0] for mensa in available]
 FAVORITE_MENSAS = {}
@@ -71,14 +68,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
-async def error_log(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_chat.id != DEVELOPER_CHAT_ID:
-        return
-
-    await context.bot.send_message(
-        chat_id=update.effective_chat.id,
-        text="The following errors occured:\n" + "\n".join(ERRORS_TO_LOG),
-    )
 
 
 async def mensa(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -295,36 +284,6 @@ async def remove_favorite_mensa(
         f"Removed {', '.join(success)} from favorite mensas for {update.effective_chat.title} "  # type: ignore
         + f"with id {update.effective_chat.id}"
     )
-
-
-async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Log the error and send a telegram message to notify the developer."""
-    if any([type(context.error) == err for err in IGNORED_ERRORS]):
-        logging.warning(f"Ignoring error or type: {type(context.error).__name__}")
-        logging.debug(f"Error: {context.error}")
-        await context.bot.send_message(
-            chat_id=DEVELOPER_CHAT_ID,
-            text=f"Ignoring error or type: {type(context.error).__name__}",
-        )
-        return
-
-    logging.error("Exception while handling an update:", exc_info=context.error)
-    tb_list = traceback.format_exception(
-        None, context.error, context.error.__traceback__
-    )
-    tb_string = "".join(tb_list)
-
-    update_str = update.to_dict() if isinstance(update, Update) else str(update)
-    message = (
-        f"An exception was raised while handling an update\n"
-        f"<pre>update = {html.escape(json.dumps(update_str, indent=2, ensure_ascii=False))}"
-        "</pre>\n\n"
-        f"<pre>context.chat_data = {html.escape(str(context.chat_data))}</pre>\n\n"
-        f"<pre>context.user_data = {html.escape(str(context.user_data))}</pre>\n\n"
-        f"<pre>{html.escape(tb_string)}</pre>"
-    )
-
-    ERRORS_TO_LOG.append(message)
 
 
 if __name__ == "__main__":

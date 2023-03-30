@@ -1,10 +1,18 @@
+import numpy as np
+import traceback
+import html
+import json
 import logging
 import pickle
+from queue import Queue
 from mensa import get_meals
+from telegram import Update
 from telegram.constants import ParseMode
-import numpy as np
+from telegram.ext import ContextTypes
+from telegram.error import NetworkError
 
 
+DEVELOPER_CHAT_ID = 631157495
 REACTION_EMOJIS = np.array([
     '🔥', '👍', '👎', '💩', '🥰', '😍', '❤️',  '😭', '🫡', '🤮', '❤️‍🔥', '🌭', 
     '😁', '🎉', '🐳', '🤯', '👏', '🤔', '🤬', '😱', '🤩', '😢', '🙏', '🕊', 
@@ -13,6 +21,8 @@ REACTION_EMOJIS = np.array([
     '😇', '😨', '🤝', '✍️',  '🤗', '🎅', '🎄', '☃️',  '💅', '🤪', '🗿', '🆒', 
     '💘', '🙉', '🦄', '😘', '💊', '🙊', '😎', '👾', '🤷', '🤷‍♀️', '🤷‍♂️', '😡', 
 ])
+IGNORED_ERRORS = [NetworkError]
+ERRORS_TO_LOG = []
 
 
 def meal_format(meal):
@@ -68,6 +78,44 @@ async def mensa_menu(mensa, update, context):
     )
 
 
+
+
+async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+    global ERRORS_TO_LOG
+
+    if type(context.error) in IGNORED_ERRORS:
+        logging.warning(f"Ignoring error or type: {type(context.error).__name__}")
+        ERRORS_TO_LOG.append(f"Ignored error of type: {type(context.error).__name__}")
+        return
+
+    logging.error("Exception while handling an update:", exc_info=context.error)
+    tb_list = traceback.format_exception(
+        None, context.error, context.error.__traceback__
+    )
+    tb_string = "".join(tb_list)
+    update_str = update.to_dict() if isinstance(update, Update) else str(update)
+    message = (
+        f"An exception was raised while handling an update\n"
+        f"<pre>update = {html.escape(json.dumps(update_str, indent=2, ensure_ascii=False))}"
+        "</pre>\n\n"
+        f"<pre>context.chat_data = {html.escape(str(context.chat_data))}</pre>\n\n"
+        f"<pre>context.user_data = {html.escape(str(context.user_data))}</pre>\n\n"
+        f"<pre>{html.escape(tb_string)}</pre>"
+    )
+
+    ERRORS_TO_LOG.append(message)
+
+
+async def error_log(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_chat.id != DEVELOPER_CHAT_ID:
+        return
+
+    await context.bot.send_message(
+        chat_id=update.effective_chat.id,
+        text="The following errors occured:\n\n" + "\n".join(ERRORS_TO_LOG),
+    )
+
+
 def update_favorite_pickle(favorite_mensas):
     # pickle the favorite mensas
     with open("favorite_mensas.pickle", "wb") as f:
@@ -78,5 +126,30 @@ def load_favorite_pickle():
         with open("favorite_mensas.pickle", "rb") as f:
             favorite_mensas = pickle.load(f)
         return favorite_mensas
-    except FileNotFoundError:
+    except (FileNotFoundError, EOFError):
+        return {}
+    
+
+def update_messages_pickle(message_backlog):
+    modified_message_backlog = {
+        user: list(messages.queue) for user, messages in message_backlog.items()
+    }
+    with open("message_backlog.pickle", "wb") as f:
+        pickle.dump(modified_message_backlog, f)
+
+
+def load_messages_pickle(queue_size=100):
+    try:
+        with open("message_backlog.pickle", "rb") as f:
+            modified_message_backlog = pickle.load(f)
+        message_backlog = {
+            user: Queue(maxsize=queue_size) for user in modified_message_backlog
+        }
+        [
+            message_backlog[user].put(message) 
+            for user, messages in modified_message_backlog.items()
+            for message in messages
+        ]
+        return message_backlog
+    except (FileNotFoundError, EOFError):
         return {}
