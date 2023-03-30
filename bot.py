@@ -1,8 +1,13 @@
 import logging
 from queue import Queue
-import pyMensa
-from datetime import time, timedelta
-import telegram
+
+from bot_helpers import (
+    load_messages_pickle,
+    update_messages_pickle,
+    error_handler,
+    error_log,
+)
+
 from telegram import (
     Update,
     Message,
@@ -15,6 +20,10 @@ from telegram.ext import (
     CommandHandler,
 )
 
+DEVELOPER_CHAT_ID = 631157495
+MESSAGE_BACKLOG = {}
+BACKLOG_LENGTH = 100
+PRINT_LIMIT = 10
 SIMPLIFY = True
 
 if not SIMPLIFY:
@@ -23,12 +32,25 @@ if not SIMPLIFY:
     summarizer = pipeline("summarization", model="philschmid/bart-large-cnn-samsum")
 
 logging.basicConfig(
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    level=logging.INFO,
+    filename="bot.log",
+    filemode="w",
 )
 
-MESSAGE_BACKLOG = {}
-BACKLOG_LENGTH = 100
-PRINT_LIMIT = 10
+
+async def reload(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    global MESSAGE_BACKLOG
+    if update.effective_chat.id != DEVELOPER_CHAT_ID:
+        return
+
+    MESSAGE_BACKLOG = load_messages_pickle()
+
+    await context.bot.send_message(
+        chat_id=update.effective_chat.id, text="Reloaded message backlog"
+    )
+
+    logging.info("Reloaded message backlog")
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -52,6 +74,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         backlog_length = int(context.args[0])
 
     MESSAGE_BACKLOG[update.effective_chat.id] = Queue(maxsize=backlog_length)
+    update_messages_pickle(MESSAGE_BACKLOG)
 
     await context.bot.send_message(
         chat_id=update.effective_chat.id,
@@ -69,6 +92,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def stop(update: Update, context: ContextTypes.DEFAULT_TYPE):
     MESSAGE_BACKLOG.pop(update.effective_chat.id)
+    update_messages_pickle(MESSAGE_BACKLOG)
 
     await context.bot.send_message(
         chat_id=update.effective_chat.id, text="I will no longer listen to this chat."
@@ -111,9 +135,11 @@ async def log(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = (
         update.effective_message.forward_from.name
         if update.effective_message.forward_from is not None
-        else update.effective_user
+        else update.effective_user.name
     )
     backlog.put((user, update.effective_message.text))
+    logging.info(MESSAGE_BACKLOG[update.effective_chat.id].queue)
+    update_messages_pickle(MESSAGE_BACKLOG)
 
     logging.info(
         f"Added message to backlog of {update.effective_chat.title} "
@@ -123,6 +149,7 @@ async def log(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def clear(update: Update, context: ContextTypes.DEFAULT_TYPE):
     MESSAGE_BACKLOG[update.effective_chat.id].queue.clear()
+    update_messages_pickle(MESSAGE_BACKLOG)
     await context.bot.send_message(
         chat_id=update.effective_chat.id, text="Cleared backlog."
     )
@@ -153,7 +180,7 @@ async def summarize(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         await context.bot.send_message(
             chat_id=update.effective_user.id,
-            text=f"Here is the summary of the last {len(backlog)} messages in {update.effective_chat.title}:\n"
+            text=f"Here is the summary of the last {backlog.qsize()} messages in {update.effective_chat.title}:\n"
             + f"{summary[0]['summary_text']}",  # type: ignore
         )
 
@@ -177,9 +204,7 @@ async def catch_all(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 def format_backlog(backlog: Queue):
-    return "\n".join(
-        [f"{name.name}: {message}" for name, message in list(backlog.queue)]
-    )
+    return "\n".join([f"{name}: {message}" for name, message in list(backlog.queue)])
 
 
 class ListeningTo(filters.MessageFilter):
@@ -195,7 +220,19 @@ if __name__ == "__main__":
         token = f.readlines()[0]
     application = ApplicationBuilder().token(token).build()
 
+    commands = (
+        "start - Start listening to a chat\n"
+        "stop - Stop listening to a chat\n"
+        "backlog - Show the backlog of a chat\n"
+        "summarize - Summarize the backlog of a chat\n"
+        "clear - Clear the backlog of a chat\n"
+    )
+
+    logging.info(f"Registered commands:\n{commands}")
+
     handlers = [
+        CommandHandler("reload", reload),
+        CommandHandler("log", error_log),
         CommandHandler("start", start),
         CommandHandler("stop", stop, filters=listening_to_filter),
         CommandHandler("backlog", show_backlog, filters=listening_to_filter),
@@ -206,5 +243,6 @@ if __name__ == "__main__":
     ]
 
     application.add_handlers(handlers)
+    application.add_error_handler(error_handler)
 
     application.run_polling()
