@@ -25,7 +25,7 @@ from telegram.ext import (
 DEVELOPER_CHAT_ID = 631157495
 MESSAGE_BACKLOG = {}
 BACKLOG_LENGTH = 500
-APPROVED_CHATS = [631157495]
+APPROVED_CHATS = [631157495, -1001517711069]
 PRINT_LIMIT = 10
 
 
@@ -127,7 +127,6 @@ async def log(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else update.effective_user.name
     )
     backlog.put((user, update.effective_message.text))
-    logging.info(MESSAGE_BACKLOG[update.effective_chat.id].queue)
     update_messages_pickle(MESSAGE_BACKLOG)
 
     logging.info(
