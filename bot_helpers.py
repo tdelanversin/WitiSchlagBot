@@ -148,7 +148,7 @@ def load_messages_pickle(queue_size=100):
         [
             message_backlog[user].put(message) 
             for user, messages in modified_message_backlog.items()
-            for message in messages
+            for _, message in zip(range(queue_size), messages)
         ]
         return message_backlog
     except (FileNotFoundError, EOFError):

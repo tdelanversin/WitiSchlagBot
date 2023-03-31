@@ -24,7 +24,7 @@ from telegram.ext import (
 
 DEVELOPER_CHAT_ID = 631157495
 MESSAGE_BACKLOG = {}
-BACKLOG_LENGTH = 500
+BACKLOG_LENGTH = 100
 APPROVED_CHATS = [631157495, -1001517711069]
 PRINT_LIMIT = 10
 
@@ -189,12 +189,12 @@ async def summarize(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
         finish_reason = response["choices"][0]["finish_reason"]  # type: ignore
-        usage = response["usage"]  # type: ignore
+        usage = response["usage"]["total_tokens"]  # type: ignore
         summary = response["choices"][0]["message"]["content"]  # type: ignore
 
         logging.info(
             f"Finished summarizing with reason: {finish_reason}"
-            + f" and a usage of {usage}"
+            + f" and a usage: {usage} total tokens"
         )
 
         if finish_reason == "stop":  # type: ignore
