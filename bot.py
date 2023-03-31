@@ -1,5 +1,6 @@
 import logging
 from queue import Queue
+import openai
 
 from bot_helpers import (
     load_messages_pickle,
@@ -12,6 +13,7 @@ from telegram import (
     Update,
     Message,
 )
+from telegram.constants import ParseMode
 from telegram.ext import (
     filters,
     MessageHandler,
@@ -22,14 +24,10 @@ from telegram.ext import (
 
 DEVELOPER_CHAT_ID = 631157495
 MESSAGE_BACKLOG = {}
-BACKLOG_LENGTH = 100
+BACKLOG_LENGTH = 500
+APPROVED_CHATS = [631157495]
 PRINT_LIMIT = 10
-SIMPLIFY = True
 
-if not SIMPLIFY:
-    from transformers import pipeline  # type: ignore
-
-    summarizer = pipeline("summarization", model="philschmid/bart-large-cnn-samsum")
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -54,15 +52,6 @@ async def reload(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if SIMPLIFY:
-        await context.bot.send_message(
-            chat_id=update.effective_chat.id,
-            text="I'm sorry, but I'm not working right now. "
-            + "I'm currently being rewritten to be simpler and more efficient. "
-            + "I'll be back soon!",
-        )
-        return
-
     if update.effective_chat.id in MESSAGE_BACKLOG:
         await context.bot.send_message(
             chat_id=update.effective_chat.id, text="I'm already listening to this chat."
@@ -160,6 +149,12 @@ async def clear(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def summarize(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_chat.id not in APPROVED_CHATS:
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text="You are not allowed to use this command.",
+        )
+
     backlog = MESSAGE_BACKLOG[update.effective_chat.id]
     logging.info(
         f"Summarizing {update.effective_chat.title}"
@@ -175,14 +170,51 @@ async def summarize(update: Update, context: ContextTypes.DEFAULT_TYPE):
             chat_id=update.effective_user.id, text="Generating summary..."
         )
 
-        input_text = format_backlog(backlog)
-        summary = summarizer(input_text, max_length=142, min_length=20, do_sample=False)
+        chat = [
+            {
+                "role": "system",
+                "content": "You are a summarizer bot. You summarize any chat conversation that you are given",
+            },
+            {"role": "user", "content": format_backlog(backlog)},
+        ]
 
-        await context.bot.send_message(
-            chat_id=update.effective_user.id,
-            text=f"Here is the summary of the last {backlog.qsize()} messages in {update.effective_chat.title}:\n"
-            + f"{summary[0]['summary_text']}",  # type: ignore
+        # USES MORE TOKENS
+        # ] + [
+        #     {'role': 'user', 'content': f'{user}: {message}'}
+        #     for user, message in list(backlog.queue)
+        # ]
+
+        response = openai.ChatCompletion.create(
+            model="gpt-3.5-turbo",
+            messages=chat,
         )
+
+        finish_reason = response["choices"][0]["finish_reason"]  # type: ignore
+        usage = response["usage"]  # type: ignore
+        summary = response["choices"][0]["message"]["content"]  # type: ignore
+
+        logging.info(
+            f"Finished summarizing with reason: {finish_reason}"
+            + f" and a usage of {usage}"
+        )
+
+        if finish_reason == "stop":  # type: ignore
+            await context.bot.send_message(
+                chat_id=update.effective_user.id,
+                text=f"<b>Here is the summary of the last <i>{backlog.qsize()}</i> messages in {update.effective_chat.title}:</b>\n\n"
+                + f"{summary}",  # type: ignore
+                parse_mode=ParseMode.HTML,
+            )
+        elif finish_reason == "length":  # type: ignore
+            await context.bot.send_message(
+                chat_id=update.effective_user.id,
+                text="I couldn't generate a summary because the chat was too long.",
+            )
+        elif finish_reason == "content_filter":  # type: ignore
+            await context.bot.send_message(
+                chat_id=update.effective_user.id,
+                text="I couldn't generate a summary because the chat contained sensitive content.",
+            )
 
     await context.bot.delete_message(
         update.effective_chat.id, update.effective_message.id
@@ -218,6 +250,9 @@ listening_to_filter = ListeningTo()
 if __name__ == "__main__":
     with open("TOKEN.token") as f:
         token = f.readlines()[0]
+    with open("OPENAI.token") as f:
+        openai.api_key = f.readlines()[0]
+
     application = ApplicationBuilder().token(token).build()
 
     commands = (
