@@ -53,6 +53,8 @@ class Mensa:
 # ETH Mensa
 class ETHMensa(Mensa):
     api_name = ""  # the name used in the ETH api (has to be defined by the inheriting class)
+    opening = ""
+    closing = ""
 
     def get_meals(self):
         menus = []
@@ -63,8 +65,11 @@ class ETHMensa(Mensa):
             with urllib.request.urlopen(url) as request:
                 mensas = json.loads(request.read().decode())
 
+
             for mensa in mensas:
                 if mensa["mensa"] == self.api_name:
+                    self.opening = mensa['hours']['mealtime'][0]["from"]
+                    self.closing = mensa['hours']['mealtime'][0]["to"]
                     for meal in mensa["meals"]:
                         menu = Meal()
                         menu.label = meal['label']

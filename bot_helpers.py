@@ -5,7 +5,7 @@ import json
 import logging
 import pickle
 from queue import Queue
-from mensa import get_meals
+from mensa import get_mensa, ETHMensa
 from telegram import Update
 from telegram.constants import ParseMode
 from telegram.ext import ContextTypes
@@ -35,6 +35,13 @@ def meal_format(meal):
         + f"{' '.join(meal.description[1:])}"
     )
 
+def mensa_format(mensa, meals):
+    times = f" <i>{mensa.opening}-{mensa.closing}</i>" if isinstance(mensa, ETHMensa) else ""
+    return (
+        f"<b>{mensa.name}</b>{times}\n\n"
+        + '\n\n'.join([meal_format(m) for m in meals])
+    )
+
 
 def format_favorites(chat_id, favorite_mensas):
     message = "Favorite mensas:\n\n"
@@ -42,34 +49,35 @@ def format_favorites(chat_id, favorite_mensas):
     mensa_emojis = np.random.permutation(REACTION_EMOJIS)[:len(favorite_mensas[chat_id])]
 
     for emoji, mensa in zip(mensa_emojis, favorite_mensas[chat_id]):
-        meals = get_meals(mensa)
+        mensa = get_mensa(mensa)
+        meals = mensa.get_meals()
         if len(meals) == 0:
             continue
 
-        formated_meal = "\n\n".join([meal_format(m) for m in meals])
-        message += f"     {emoji} <b><i>{mensa.upper()}</i></b>:\n\n{formated_meal}\n\n"
+        message += f"{emoji}{mensa_format(mensa, meals)}\n\n"
 
     return message
 
 
 async def mensa_menu(mensa, update, context):
-    meals = get_meals(mensa)
+    mensa = get_mensa(mensa)
+    meals = mensa.get_meals()
     if len(meals) == 0:
         await context.bot.send_message(
             chat_id=update.effective_chat.id,
             text="I couldn't find a menu for today. Please try again tomorrow.",
         )
         logging.info(
-            f"Couldn't find a menu for {mensa} today "
+            f"Couldn't find a menu for {mensa.name} today "
             + f"for {update.effective_chat.title} "
             + f"with id {update.effective_chat.id}"
         )
         return
 
-    formated_meal = "\n\n".join([meal_format(m) for m in meals])
-
     await context.bot.send_message(
-        chat_id=update.effective_chat.id, text=formated_meal, parse_mode=ParseMode.HTML
+        chat_id=update.effective_chat.id, 
+        text=mensa_format(mensa, meals), 
+        parse_mode=ParseMode.HTML,
     )
 
     logging.info(
