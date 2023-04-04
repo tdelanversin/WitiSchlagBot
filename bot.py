@@ -39,24 +39,19 @@ logging.basicConfig(
 )
 
 
-async def reload(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    global MESSAGE_BACKLOG
-    if update.effective_chat.id != DEVELOPER_CHAT_ID:
-        return
-
-    MESSAGE_BACKLOG = load_messages_pickle()
-
-    await context.bot.send_message(
-        chat_id=update.effective_chat.id, text="Reloaded message backlog"
-    )
-
-    logging.info("Reloaded message backlog")
-
-
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    global MESSAGE_BACKLOG
+    if update.effective_chat.id == DEVELOPER_CHAT_ID:
+        MESSAGE_BACKLOG = load_messages_pickle()
+
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id, text="Reloaded message backlog"
+        )
+        logging.info("Reloaded message backlog")
+
     if (
         update.effective_chat.id not in APPROVED_CHATS
-        and update.effective_chat.id != DEVELOPER_CHAT_ID
+        and update.effective_user.id != DEVELOPER_CHAT_ID
     ):
         return
 
@@ -163,12 +158,12 @@ async def summarize(update: Update, context: ContextTypes.DEFAULT_TYPE):
         i = 0
         while i < len(context.args):
             arg = context.args[i]
-            if arg == "--ingroup":
+            if arg == "-ingroup":
                 response_chat_id = update.effective_chat.id
-            elif arg == "--language":
+            elif arg == "-language":
                 response_language = context.args[i + 1]
                 i += 1
-            
+            i += 1
 
     backlog = MESSAGE_BACKLOG[update.effective_chat.id]
     logging.info(
@@ -281,7 +276,6 @@ if __name__ == "__main__":
     logging.info(f"Registered commands:\n{commands}")
 
     handlers = [
-        CommandHandler("reload", reload),
         CommandHandler("log", partial(error_log, LOGFILE)),
         CommandHandler("start", start),
         CommandHandler("stop", stop, filters=listening_to_filter),
