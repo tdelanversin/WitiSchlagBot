@@ -54,6 +54,12 @@ async def reload(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if (
+        update.effective_chat.id not in APPROVED_CHATS
+        and update.effective_chat.id != DEVELOPER_CHAT_ID
+    ):
+        return
+
     if update.effective_chat.id in MESSAGE_BACKLOG:
         await context.bot.send_message(
             chat_id=update.effective_chat.id, text="I'm already listening to this chat."
@@ -150,11 +156,19 @@ async def clear(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def summarize(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_chat.id not in APPROVED_CHATS:
-        await context.bot.send_message(
-            chat_id=update.effective_chat.id,
-            text="You are not allowed to use this command.",
-        )
+    response_chat_id = update.effective_user.id
+    response_language = "English"
+
+    if context.args:
+        i = 0
+        while i < len(context.args):
+            arg = context.args[i]
+            if arg == "--ingroup":
+                response_chat_id = update.effective_chat.id
+            elif arg == "--language":
+                response_language = context.args[i + 1]
+                i += 1
+            
 
     backlog = MESSAGE_BACKLOG[update.effective_chat.id]
     logging.info(
@@ -164,17 +178,17 @@ async def summarize(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if backlog.empty():
         await context.bot.send_message(
-            chat_id=update.effective_user.id, text="I haven't seen any messages yet."
+            chat_id=response_chat_id, text="I haven't seen any messages yet."
         )
     else:
         await context.bot.send_message(
-            chat_id=update.effective_user.id, text="Generating summary..."
+            chat_id=response_chat_id, text="Generating summary..."
         )
 
         chat = [
             {
                 "role": "system",
-                "content": "You are a summarizer bot. You summarize any chat conversation that you are given",
+                "content": f"Summazrize the following chat conversation in {response_language}",
             },
             {"role": "user", "content": format_backlog(backlog)},
         ]
@@ -201,19 +215,19 @@ async def summarize(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         if finish_reason == "stop":  # type: ignore
             await context.bot.send_message(
-                chat_id=update.effective_user.id,
+                chat_id=response_chat_id,
                 text=f"<b>Here is the summary of the last <i>{backlog.qsize()}</i> messages in {update.effective_chat.title}:</b>\n\n"
                 + f"{summary}",  # type: ignore
                 parse_mode=ParseMode.HTML,
             )
         elif finish_reason == "length":  # type: ignore
             await context.bot.send_message(
-                chat_id=update.effective_user.id,
+                chat_id=response_chat_id,
                 text="I couldn't generate a summary because the chat was too long.",
             )
         elif finish_reason == "content_filter":  # type: ignore
             await context.bot.send_message(
-                chat_id=update.effective_user.id,
+                chat_id=response_chat_id,
                 text="I couldn't generate a summary because the chat contained sensitive content.",
             )
 
