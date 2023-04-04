@@ -22,18 +22,18 @@ REACTION_EMOJIS = np.array([
     '💘', '🙉', '🦄', '😘', '💊', '🙊', '😎', '👾', '🤷', '🤷‍♀️', '🤷‍♂️', '😡', 
 ])
 IGNORED_ERRORS = [NetworkError]
-ERRORS_TO_LOG = []
 
 
 def meal_format(meal):
-    return (
+    ret = (
         f"{meal.label} "
         + f"<i>({meal.price_student}, "
         + f"{meal.price_staff}, "
         + f"{meal.price_extern})</i>\n"
-        + f"<b>{meal.description[0]}</b>\n"
-        + f"{' '.join(meal.description[1:])}"
     )
+    if len(meal.description) > 0:
+        ret += f"<b>{meal.description[0]}</b>\n{' '.join(meal.description[1:])}"
+    return ret
 
 def mensa_format(mensa, meals):
     times = f" <i>{mensa.opening}-{mensa.closing}</i>" if isinstance(mensa, ETHMensa) else ""
@@ -89,11 +89,9 @@ async def mensa_menu(mensa, update, context):
 
 
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
-    global ERRORS_TO_LOG
 
     if type(context.error) in IGNORED_ERRORS:
         logging.warning(f"Ignoring error or type: {type(context.error).__name__}")
-        ERRORS_TO_LOG.append(f"Ignored error of type: {type(context.error).__name__}")
         return
 
     logging.error("Exception while handling an update:", exc_info=context.error)
@@ -111,16 +109,17 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> N
         f"<pre>{html.escape(tb_string)}</pre>"
     )
 
-    ERRORS_TO_LOG.append(message)
+    logging.error(message)
 
 
-async def error_log(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def error_log(logfile: str, update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_chat.id != DEVELOPER_CHAT_ID:
         return
 
-    await context.bot.send_message(
+    await context.bot.send_document(
         chat_id=update.effective_chat.id,
-        text="The following errors occured:\n\n" + "\n".join(ERRORS_TO_LOG),
+        document=open(logfile, "rb"),
+        caption="Here is the log file.",
     )
 
 

@@ -1,6 +1,7 @@
 import logging
 from datetime import time
 import pytz
+from functools import partial
 
 from mensa import get_mensa, available
 from bot_helpers import (
@@ -24,13 +25,8 @@ from telegram.ext import (
     CommandHandler,
 )
 
-logging.basicConfig(
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    level=logging.INFO,
-    filename="mensa_bot.log",
-    filemode="w",
-)
 
+LOGFILE = "mensa_bot.log"
 DEVELOPER_CHAT_ID = 631157495
 ERRORS_TO_LOG = []
 MENSAS = [mensa.aliases[0] for mensa in available]
@@ -38,6 +34,12 @@ FAVORITE_MENSAS = {}
 FAVORITE_TIME = time(10, 00, tzinfo=pytz.timezone("Europe/Zurich"))
 TIMES = ["11:30 - 12:00", "12:00 - 12:30", "12:30 - 13:00", "13:00 - 13:30"]
 
+logging.basicConfig(
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    level=logging.INFO,
+    filename=LOGFILE,
+    filemode="w",
+)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global FAVORITE_MENSAS
@@ -309,7 +311,7 @@ if __name__ == "__main__":
 
     handlers = [
         CommandHandler("start", start),
-        CommandHandler("log", error_log),
+        CommandHandler("log", partial(error_log, LOGFILE)),
         CommandHandler("mensa", mensa),
         CommandHandler("set", set_daily_mensa),
         CommandHandler("unset", unset_daily_mensa),

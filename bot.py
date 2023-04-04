@@ -1,6 +1,7 @@
 import logging
 from queue import Queue
 import openai
+from functools import partial
 
 from bot_helpers import (
     load_messages_pickle,
@@ -22,6 +23,7 @@ from telegram.ext import (
     CommandHandler,
 )
 
+LOGFILE = "bot.log"
 DEVELOPER_CHAT_ID = 631157495
 MESSAGE_BACKLOG = {}
 BACKLOG_LENGTH = 100
@@ -32,7 +34,7 @@ PRINT_LIMIT = 10
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     level=logging.INFO,
-    filename="bot.log",
+    filename=LOGFILE,
     filemode="w",
 )
 
@@ -266,7 +268,7 @@ if __name__ == "__main__":
 
     handlers = [
         CommandHandler("reload", reload),
-        CommandHandler("log", error_log),
+        CommandHandler("log", partial(error_log, LOGFILE)),
         CommandHandler("start", start),
         CommandHandler("stop", stop, filters=listening_to_filter),
         CommandHandler("backlog", show_backlog, filters=listening_to_filter),
