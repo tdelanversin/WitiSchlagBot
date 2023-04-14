@@ -96,9 +96,9 @@ class UniMensa(Mensa):
         try:
             with urllib.request.urlopen(url) as request:
                 raw_data = request.read().decode("utf8")
-                
+
             soup = BeautifulSoup(raw_data, "html.parser")
-            menu_holder = soup.find("div", {"class": "newslist-description"})
+            menu_holder = soup.find("div", {"class": "NewsListItem--content"})
 
             lines = menu_holder.text.split("\n")
         except Exception as e:
