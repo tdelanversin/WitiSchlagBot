@@ -32,7 +32,7 @@ ERRORS_TO_LOG = []
 MENSAS = [mensa.aliases[0] for mensa in available]
 FAVORITE_MENSAS = {}
 FAVORITE_TIME = time(10, 00, tzinfo=pytz.timezone("Europe/Zurich"))
-TIMES = ["11:30 - 12:00", "12:00 - 12:30", "12:30 - 13:00", "13:00 - 13:30"]
+TIMES = ["11:30", "11:45", "12:00", "12:15", "12:30", "12:45", "13:00"]
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
