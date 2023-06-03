@@ -10,7 +10,7 @@ cd "$(git rev-parse --show-toplevel)"
 git pull origin
 
 # Check if there were any changes
-if [ "$(git diff --name-only origin/master)" ]; then
+if [ "$(git diff --name-only origin/main)" ]; then
     echo "Changes detected. Restarting the Python script..."
     
     # Stop the currently running Python script if it's already running
