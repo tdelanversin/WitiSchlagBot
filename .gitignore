@@ -4,6 +4,7 @@ token.json
 .vscode/settings.json
 *.pickle
 fetch_logs.sh
+push_logs.sh
 
 ## TEMPLATE:
 # Byte-compiled / optimized / DLL files
