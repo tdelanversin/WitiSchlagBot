@@ -4,6 +4,9 @@ import urllib.request
 from bs4 import BeautifulSoup
 
 
+MEALTIME_SWITCH = 14  # 14:00
+
+
 def get_meals(name):
     return get_mensa(name).get_meals()
 
@@ -14,7 +17,27 @@ def get_mensa(name):
             return mensa
 
 
-MEALTIME_SWITCH = 14  # 14:00
+def meal_format(meal):
+    ret = (
+        f"{meal.label} "
+        + f"<i>({meal.price_student}, "
+        + f"{meal.price_staff}, "
+        + f"{meal.price_extern})</i>\n"
+    )
+    if len(meal.description) > 0:
+        ret += f"<b>{meal.description[0]}</b>\n{' '.join(meal.description[1:])}"
+    return ret
+
+
+def mensa_format(mensa, meals):
+    times = (
+        f" <i>{mensa.opening}-{mensa.closing}</i>"
+        if isinstance(mensa, ETHMensa)
+        else ""
+    )
+    return f"<b>{mensa.name}</b>{times}\n\n" + "\n\n".join(
+        [meal_format(m) for m in meals]
+    )
 
 
 class Meal:
@@ -29,7 +52,9 @@ class Meal:
         to String Method
         :return:
         """
-        out = "{} (STUD:{} STAFF:{} EXTERN:{})".format(self.label, self.price_student, self.price_staff, self.price_extern)
+        out = "{} (STUD:{} STAFF:{} EXTERN:{})".format(
+            self.label, self.price_student, self.price_staff, self.price_extern
+        )
         for description in self.description:
             out = out + "\n\t{}".format(description)
         return out
@@ -52,7 +77,9 @@ class Mensa:
 
 # ETH Mensa
 class ETHMensa(Mensa):
-    api_name = ""  # the name used in the ETH api (has to be defined by the inheriting class)
+    api_name = (
+        ""  # the name used in the ETH api (has to be defined by the inheriting class)
+    )
     opening = ""
     closing = ""
 
@@ -60,23 +87,26 @@ class ETHMensa(Mensa):
         menus = []
         try:
             date = datetime.datetime.now().strftime("%Y-%m-%d")
-            mealtime = "lunch" if datetime.datetime.now().hour < MEALTIME_SWITCH else "dinner"
-            url = "https://www.webservices.ethz.ch/gastro/v1/RVRI/Q1E1/meals/en/{}/{}".format(date, mealtime)
+            mealtime = (
+                "lunch" if datetime.datetime.now().hour < MEALTIME_SWITCH else "dinner"
+            )
+            url = "https://www.webservices.ethz.ch/gastro/v1/RVRI/Q1E1/meals/en/{}/{}".format(
+                date, mealtime
+            )
             with urllib.request.urlopen(url) as request:
                 mensas = json.loads(request.read().decode())
 
-
             for mensa in mensas:
                 if mensa["mensa"] == self.api_name:
-                    self.opening = mensa['hours']['mealtime'][0]["from"]
-                    self.closing = mensa['hours']['mealtime'][0]["to"]
+                    self.opening = mensa["hours"]["mealtime"][0]["from"]
+                    self.closing = mensa["hours"]["mealtime"][0]["to"]
                     for meal in mensa["meals"]:
                         menu = Meal()
-                        menu.label = meal['label']
-                        menu.price_student = meal['prices']['student']
-                        menu.price_staff = meal['prices']['staff']
-                        menu.price_extern = meal['prices']['extern']
-                        menu.description = meal['description']
+                        menu.label = meal["label"]
+                        menu.price_student = meal["prices"]["student"]
+                        menu.price_staff = meal["prices"]["staff"]
+                        menu.price_extern = meal["prices"]["extern"]
+                        menu.description = meal["description"]
                         menus.append(menu)
             return menus
         except Exception as e:
@@ -87,11 +117,21 @@ class ETHMensa(Mensa):
 class UniMensa(Mensa):
     api_name = ""  # the name used on the UNI website (has to be defined by the inheriting class)
 
-    tage = ["montag", "dienstag", "mittwoch", "donnerstag", "freitag", "samstag", "sonntag"]
+    tage = [
+        "montag",
+        "dienstag",
+        "mittwoch",
+        "donnerstag",
+        "freitag",
+        "samstag",
+        "sonntag",
+    ]
 
     def get_meals(self):
         day = self.tage[datetime.datetime.today().weekday()]  # current day
-        url = "https://www.mensa.uzh.ch/de/menueplaene/{}/{}.html".format(self.api_name, day)
+        url = "https://www.mensa.uzh.ch/de/menueplaene/{}/{}.html".format(
+            self.api_name, day
+        )
 
         try:
             with urllib.request.urlopen(url) as request:
@@ -209,7 +249,17 @@ class Platte(UniMensa):
 
 
 class Raemi59(UniMensa):
-    aliases = ["raemi", "rämi", "rämi59", "raemi59", "rämi 59", "raemi 59", "raemistrasse", "rämistrasse", "rämistross"]
+    aliases = [
+        "raemi",
+        "rämi",
+        "rämi59",
+        "raemi59",
+        "rämi 59",
+        "raemi 59",
+        "raemistrasse",
+        "rämistrasse",
+        "rämistross",
+    ]
     name = "Rämi 59"
     api_name = "raemi59"
 
@@ -292,7 +342,29 @@ class BotanischerGarten(UniMensa):
     api_name = "cafeteria-uzh-botgarten"
 
 
-available = [Polymensa(), FoodLab(), Clausiusbar(), Polysnack(), Foodtrailer(), AlumniLounge(),
-             Bellavista(), FusionMeal(), GessBar(), Tannenbar(), Dozentenfoyer(), Platte(),
-             Raemi59(), UZHMercato(), UZHZentrum(), UZHLichthof(), Irchel(), IrchelAtrium(), Binzmühle(),
-             Cityport(), Zahnmedizin(), Tierspital(), BotanischerGarten(), UZHZentrumAllgemein()]
+available = [
+    Polymensa(),
+    FoodLab(),
+    Clausiusbar(),
+    Polysnack(),
+    Foodtrailer(),
+    AlumniLounge(),
+    Bellavista(),
+    FusionMeal(),
+    GessBar(),
+    Tannenbar(),
+    Dozentenfoyer(),
+    Platte(),
+    Raemi59(),
+    UZHMercato(),
+    UZHZentrum(),
+    UZHLichthof(),
+    Irchel(),
+    IrchelAtrium(),
+    Binzmühle(),
+    Cityport(),
+    Zahnmedizin(),
+    Tierspital(),
+    BotanischerGarten(),
+    UZHZentrumAllgemein(),
+]

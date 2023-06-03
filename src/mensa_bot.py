@@ -1,17 +1,10 @@
 import logging
 from datetime import time
 import pytz
-from functools import partial
+import pickle
+import numpy as np
 
-from mensa import get_mensa, available
-from bot_helpers import (
-    format_favorites,
-    mensa_menu,
-    update_favorite_pickle,
-    load_favorite_pickle,
-    error_handler,
-    error_log,
-)
+from botBase import pi_bot, mensa_helpers, reaction_emojis
 
 from telegram.constants import ParseMode
 from telegram import (
@@ -23,53 +16,79 @@ from telegram.ext import (
     ApplicationBuilder,
     ContextTypes,
     CommandHandler,
+    Application,
 )
 
 
-LOGFILE = "mensa_bot.log"
+LOG_FILE = "WitiGrailleBotFiles/bot.log"
+BOT_TOKEN_FILE = "WitiGrailleBotFiles/TOKEN.token"
+FAVORITES_FILE = "WitiGrailleBotFiles/favorite_mensas.pickle"
 DEVELOPER_CHAT_ID = 631157495
 ERRORS_TO_LOG = []
-MENSAS = [mensa.aliases[0] for mensa in available]
+MENSAS = [mensa.aliases[0] for mensa in mensa_helpers.available]
 FAVORITE_MENSAS = {}
-FAVORITE_TIME = time(10, 00, tzinfo=pytz.timezone("Europe/Zurich"))
+FAVORITE_TIME = time(9, 00, tzinfo=pytz.timezone("Europe/Zurich"))
 TIMES = ["11:30", "11:45", "12:00", "12:15", "12:30", "12:45", "13:00"]
 
-logging.basicConfig(
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    level=logging.INFO,
-    filename=LOGFILE,
-    filemode="w",
-)
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+def update_favorite_pickle():
     global FAVORITE_MENSAS
-    if update.effective_chat.id != DEVELOPER_CHAT_ID:
-        return
+    with open(FAVORITES_FILE, "wb") as f:
+        pickle.dump(FAVORITE_MENSAS, f)
 
-    FAVORITE_MENSAS = load_favorite_pickle()
 
-    for chat_id in FAVORITE_MENSAS:
-        context.job_queue.run_daily(
-            favorite_job,
-            time=FAVORITE_TIME,
-            days=(1, 2, 3, 4, 5),
-            chat_id=chat_id,
-            name=str(chat_id),
+def load_favorite_pickle():
+    global FAVORITE_MENSAS
+    try:
+        with open(FAVORITES_FILE, "rb") as f:
+            FAVORITE_MENSAS = pickle.load(f)
+    except (FileNotFoundError, EOFError):
+        pass
+
+
+async def mensa_menu(mensa, update, context):
+    mensa = mensa_helpers.get_mensa(mensa)
+    meals = mensa.get_meals()
+    if len(meals) == 0:
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text="I couldn't find a menu for today. Please try again tomorrow.",
         )
+        logging.info(
+            f"Couldn't find a menu for {mensa.name} today "
+            + f"for {update.effective_chat.title} "
+            + f"with id {update.effective_chat.id}"
+        )
+        return
 
     await context.bot.send_message(
         chat_id=update.effective_chat.id,
-        text="I'm back online!",
+        text=mensa_helpers.mensa_format(mensa, meals),
+        parse_mode=ParseMode.HTML,
     )
 
     logging.info(
-        f"Started bot with id {context.bot.id} "
-        + f"and name {context.bot.name} "
-        + f"by {update.effective_user.name} "
-        + f"with id {update.effective_user.id}"
+        f"Sent menu for {mensa} to {update.effective_chat.title} "
+        + f"with id {update.effective_chat.id}"
     )
 
 
+def format_favorites(chat_id):
+    message = "Favorite mensas:\n\n"
+
+    mensa_emojis = np.random.permutation(reaction_emojis.REACTION_EMOJIS)[
+        : len(FAVORITE_MENSAS[chat_id])
+    ]
+
+    for emoji, mensa in zip(mensa_emojis, FAVORITE_MENSAS[chat_id]):
+        mensa = mensa_helpers.get_mensa(mensa)
+        meals = mensa.get_meals()
+        if len(meals) == 0:
+            continue
+
+        message += f"{emoji}{mensa_helpers.mensa_format(mensa, meals)}\n\n"
+
+    return message
 
 
 async def mensa(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -89,10 +108,33 @@ async def mensa(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await mensa_menu(context.args[0], update, context)  # type: ignore
 
 
+async def post_init(application: Application):
+    global FAVORITE_MENSAS
+    load_favorite_pickle()
+
+    for chat_id in FAVORITE_MENSAS:
+        application.job_queue.run_daily(
+            favorite_job,
+            time=FAVORITE_TIME,
+            days=(1, 2, 3, 4, 5),
+            chat_id=chat_id,
+            name=str(chat_id),
+        )
+
+    await application.bot.send_message(
+        chat_id=DEVELOPER_CHAT_ID,
+        text="Bot started!",
+    )
+    logging.info(
+        f"Started bot with id {application.bot.id} "
+        + f"and name {application.bot.name}"
+    )
+
+
 async def generic_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     command = update.effective_message.text[1:].split("@")[0]
     if command in MENSAS:  # type: ignore
-        await mensa_menu(command, update, context)
+        await mensa_helpers.mensa_menu(command, update, context)
         return
 
     logging.info(
@@ -109,19 +151,35 @@ async def mensa_favorites(update: Update, context: ContextTypes.DEFAULT_TYPE):
             chat_id=update.effective_chat.id,
             text="You can only use this command with an active daily menu job.",
         )
+        logging.info(
+            f"Received favorite command with no active menu job "
+            + f"from {update.effective_user.name} "
+            + f"with id {update.effective_user.id}"
+        )
         return
+    
     if len(FAVORITE_MENSAS[chat_id]) == 0:
         await context.bot.send_message(
             chat_id=update.effective_chat.id,
             text="You don't have any favorite mensas yet. "
             + "Use /add to add a mensa to your favorites.",
         )
+        logging.info(
+            f"Received favorite command with no favorite mensa "
+            + f"from {update.effective_user.name} "
+            + f"with id {update.effective_user.id}"
+        )
         return
 
     await context.bot.send_message(
         chat_id=chat_id,
-        text=format_favorites(chat_id, FAVORITE_MENSAS),
+        text=format_favorites(chat_id),
         parse_mode=ParseMode.HTML,
+    )
+    logging.info(
+        f"Sent favorite mensa "
+        + f"to {update.effective_user.name} "
+        + f"with id {update.effective_user.id}"
     )
 
 
@@ -153,7 +211,9 @@ async def make_poll(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await context.bot.send_poll(
         chat_id=chat_id,
         question="Which mensa do you want to eat at today?",
-        options=[get_mensa(mensa).name for mensa in FAVORITE_MENSAS[chat_id]],
+        options=[
+            mensa_helpers.get_mensa(mensa).name for mensa in FAVORITE_MENSAS[chat_id]
+        ],
         type="regular",
         allows_multiple_answers=True,
         is_anonymous=False,
@@ -162,7 +222,7 @@ async def make_poll(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def favorite_job(context: ContextTypes.DEFAULT_TYPE) -> None:
     job = context.job
-    message = format_favorites(job.chat_id, FAVORITE_MENSAS)
+    message = format_favorites(job.chat_id)
 
     await context.bot.send_message(
         chat_id=job.chat_id, text=message, parse_mode=ParseMode.HTML
@@ -191,7 +251,7 @@ async def set_daily_mensa(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         "Successfully set daily mensa job for favorite mensas!"
     )
 
-    update_favorite_pickle(FAVORITE_MENSAS)
+    update_favorite_pickle()
 
     logging.info(
         f"Set daily mensa job for {update.effective_chat.title} "
@@ -210,7 +270,7 @@ async def unset_daily_mensa(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         job.schedule_removal()
     await update.message.reply_text("Successfully unset daily mensa job!")
 
-    update_favorite_pickle(FAVORITE_MENSAS)
+    update_favorite_pickle()
 
     logging.info(
         f"Unset daily mensa job for {update.effective_chat.title} "
@@ -245,7 +305,7 @@ async def add_favorite_mensa(
         f"Successfully added {', '.join(success)} to favorite mensas!"  # type: ignore
     )
 
-    update_favorite_pickle(FAVORITE_MENSAS)
+    update_favorite_pickle()
 
     logging.info(
         f"Added {', '.join(success)} to favorite mensas for {update.effective_chat.title} "  # type: ignore
@@ -280,7 +340,7 @@ async def remove_favorite_mensa(
         f"Successfully removed {', '.join(success)} from favorite mensas!"  # type: ignore
     )
 
-    update_favorite_pickle(FAVORITE_MENSAS)
+    update_favorite_pickle()
 
     logging.info(
         f"Removed {', '.join(success)} from favorite mensas for {update.effective_chat.title} "  # type: ignore
@@ -289,7 +349,7 @@ async def remove_favorite_mensa(
 
 
 if __name__ == "__main__":
-    with open("GRAILLE.token") as f:
+    with open(BOT_TOKEN_FILE) as f:
         token = f.readlines()[0]
     application = ApplicationBuilder().token(token).build()
 
@@ -304,14 +364,13 @@ if __name__ == "__main__":
     )
 
     commands += "\n".join(
-        [f"{mensa} - Get the menu for {get_mensa(mensa).name}" for mensa in MENSAS]
+        [
+            f"{mensa} - Get the menu for {mensa_helpers.get_mensa(mensa).name}"
+            for mensa in MENSAS
+        ]
     )
 
-    logging.info(f"Registered commands:\n{commands}")
-
     handlers = [
-        CommandHandler("start", start),
-        CommandHandler("log", partial(error_log, LOGFILE)),
         CommandHandler("mensa", mensa),
         CommandHandler("set", set_daily_mensa),
         CommandHandler("unset", unset_daily_mensa),
@@ -322,7 +381,4 @@ if __name__ == "__main__":
         MessageHandler(filters.COMMAND, generic_command),
     ]
 
-    application.add_handlers(handlers)
-    application.add_error_handler(error_handler)
-
-    application.run_polling()
+    pi_bot.start_bot("mensa", commands, LOG_FILE, token, post_init, handlers)

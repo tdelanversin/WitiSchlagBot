@@ -1,15 +1,10 @@
 import logging
 from queue import Queue
+import pickle
+
+from botBase import pi_bot
+
 import openai
-from functools import partial
-
-from bot_helpers import (
-    load_messages_pickle,
-    update_messages_pickle,
-    error_handler,
-    error_log,
-)
-
 from telegram import (
     Update,
     Message,
@@ -18,36 +13,59 @@ from telegram.constants import ParseMode
 from telegram.ext import (
     filters,
     MessageHandler,
-    ApplicationBuilder,
     ContextTypes,
     CommandHandler,
+    Application,
 )
 
-LOGFILE = "bot.log"
+LOG_FILE = "WitiBotFiles/bot.log"
+BOT_TOKEN_FILE = "WitiBotFiles/TOKEN.token"
+OPENAI_TOKEN_FILE = "WitiBotFiles/OPENAI.token"
+MESSAGES_FILE = "WitiBotFiles/message_backlog.pickle"
 DEVELOPER_CHAT_ID = 631157495
 MESSAGE_BACKLOG = {}
-BACKLOG_LENGTH = 100
+BACKLOG_LENGTH = 200
 APPROVED_CHATS = [631157495, -1001517711069]
 PRINT_LIMIT = 10
 
 
-logging.basicConfig(
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    level=logging.INFO,
-    filename=LOGFILE,
-    filemode="w",
-)
+def update_messages_pickle():
+    global MESSAGE_BACKLOG
+    modified_message_backlog = {
+        user: list(messages.queue) for user, messages in MESSAGE_BACKLOG.items()
+    }
+    with open(MESSAGES_FILE) as f:
+        pickle.dump(modified_message_backlog, f)
+
+
+def load_messages_pickle(queue_size=100):
+    global MESSAGE_BACKLOG
+    try:
+        with open(MESSAGES_FILE, "rb") as f:
+            modified_message_backlog = pickle.load(f)
+        MESSAGE_BACKLOG = {
+            user: Queue(maxsize=queue_size) for user in modified_message_backlog
+        }
+        [
+            MESSAGE_BACKLOG[user].put(message)
+            for user, messages in modified_message_backlog.items()
+            for _, message in zip(range(queue_size), messages)
+        ]
+    except (FileNotFoundError, EOFError):
+        pass
+
+
+async def post_init(application: Application) -> None:
+    load_messages_pickle()
+    await application.bot.send_message(
+        chat_id=DEVELOPER_CHAT_ID,
+        text="Bot started!",
+    )
+    logging.info("Loaded message backlog")
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global MESSAGE_BACKLOG
-    if update.effective_chat.id == DEVELOPER_CHAT_ID:
-        MESSAGE_BACKLOG = load_messages_pickle()
-
-        await context.bot.send_message(
-            chat_id=update.effective_chat.id, text="Reloaded message backlog"
-        )
-        logging.info("Reloaded message backlog")
 
     if (
         update.effective_chat.id not in APPROVED_CHATS
@@ -66,7 +84,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         backlog_length = int(context.args[0])
 
     MESSAGE_BACKLOG[update.effective_chat.id] = Queue(maxsize=backlog_length)
-    update_messages_pickle(MESSAGE_BACKLOG)
+    update_messages_pickle()
 
     await context.bot.send_message(
         chat_id=update.effective_chat.id,
@@ -84,7 +102,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def stop(update: Update, context: ContextTypes.DEFAULT_TYPE):
     MESSAGE_BACKLOG.pop(update.effective_chat.id)
-    update_messages_pickle(MESSAGE_BACKLOG)
+    update_messages_pickle()
 
     await context.bot.send_message(
         chat_id=update.effective_chat.id, text="I will no longer listen to this chat."
@@ -130,7 +148,7 @@ async def log(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else update.effective_user.name
     )
     backlog.put((user, update.effective_message.text))
-    update_messages_pickle(MESSAGE_BACKLOG)
+    update_messages_pickle()
 
     logging.info(
         f"Added message to backlog of {update.effective_chat.title} "
@@ -140,7 +158,7 @@ async def log(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def clear(update: Update, context: ContextTypes.DEFAULT_TYPE):
     MESSAGE_BACKLOG[update.effective_chat.id].queue.clear()
-    update_messages_pickle(MESSAGE_BACKLOG)
+    update_messages_pickle()
     await context.bot.send_message(
         chat_id=update.effective_chat.id, text="Cleared backlog."
     )
@@ -188,12 +206,6 @@ async def summarize(update: Update, context: ContextTypes.DEFAULT_TYPE):
             {"role": "user", "content": format_backlog(backlog)},
         ]
 
-        # USES MORE TOKENS
-        # ] + [
-        #     {'role': 'user', 'content': f'{user}: {message}'}
-        #     for user, message in list(backlog.queue)
-        # ]
-
         response = openai.ChatCompletion.create(
             model="gpt-3.5-turbo",
             messages=chat,
@@ -237,7 +249,6 @@ async def summarize(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
-
     backlog = MESSAGE_BACKLOG[update.effective_chat.id]
     logging.info(
         f"Summarizing {update.effective_chat.title}"
@@ -256,13 +267,11 @@ async def prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
         chat = [
             {
                 "role": "system",
-                "content": f"Your task is to answer a given question, given the provided chat conversation if necessary.\n" +
-                    "Context: " + format_backlog(backlog) + "\n",
+                "content": f"You are a bot that listens to a conversation and "
+                + "answers any question a user has. The converation context is:\n"
+                + format_backlog(backlog),
             },
-            {
-                "role": "user", 
-                "content": (" ".join(context.args)) # type: ignore
-            },
+            {"role": "user", "content": (" ".join(context.args))},  # type: ignore
         ]
 
         response = openai.ChatCompletion.create(
@@ -296,10 +305,7 @@ async def prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 text="I couldn't generate a summary because the chat contained sensitive content.",
             )
 
-        await context.bot.delete_message(
-            update.effective_chat.id, temp_message.id
-        )
-
+        await context.bot.delete_message(update.effective_chat.id, temp_message.id)
 
     logging.info(
         f"Sent summary to <{update.effective_user.name}> "
@@ -329,12 +335,10 @@ listening_to_filter = ListeningTo()
 
 
 if __name__ == "__main__":
-    with open("TOKEN.token") as f:
+    with open(BOT_TOKEN_FILE) as f:
         token = f.readlines()[0]
-    with open("OPENAI.token") as f:
+    with open(OPENAI_TOKEN_FILE) as f:
         openai.api_key = f.readlines()[0]
-
-    application = ApplicationBuilder().token(token).build()
 
     commands = (
         "start - Start listening to a chat\n"
@@ -345,10 +349,7 @@ if __name__ == "__main__":
         "clear - Clear the backlog of a chat\n"
     )
 
-    logging.info(f"Registered commands:\n{commands}")
-
     handlers = [
-        CommandHandler("log", partial(error_log, LOGFILE)),
         CommandHandler("start", start),
         CommandHandler("stop", stop, filters=listening_to_filter),
         CommandHandler("backlog", show_backlog, filters=listening_to_filter),
@@ -359,7 +360,4 @@ if __name__ == "__main__":
         MessageHandler(filters.ALL, catch_all),
     ]
 
-    application.add_handlers(handlers)
-    application.add_error_handler(error_handler)
-
-    application.run_polling()
+    pi_bot.start_bot("WitiBot", commands, LOG_FILE, token, post_init, handlers)
