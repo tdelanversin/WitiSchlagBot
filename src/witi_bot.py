@@ -34,7 +34,7 @@ def update_messages_pickle():
     modified_message_backlog = {
         user: list(messages.queue) for user, messages in MESSAGE_BACKLOG.items()
     }
-    with open(MESSAGES_FILE) as f:
+    with open(MESSAGES_FILE, "w") as f:
         pickle.dump(modified_message_backlog, f)
 
 
