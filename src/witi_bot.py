@@ -1,5 +1,4 @@
 import logging
-from queue import Queue
 import pickle
 
 from botBase import pi_bot
@@ -32,9 +31,9 @@ PRINT_LIMIT = 10
 def update_messages_pickle():
     global MESSAGE_BACKLOG
     modified_message_backlog = {
-        user: list(messages.queue) for user, messages in MESSAGE_BACKLOG.items()
+        user: messages for user, messages in MESSAGE_BACKLOG.items()
     }
-    with open(MESSAGES_FILE, "w") as f:
+    with open(MESSAGES_FILE, "wb") as f:
         pickle.dump(modified_message_backlog, f)
 
 
@@ -42,15 +41,7 @@ def load_messages_pickle(queue_size=100):
     global MESSAGE_BACKLOG
     try:
         with open(MESSAGES_FILE, "rb") as f:
-            modified_message_backlog = pickle.load(f)
-        MESSAGE_BACKLOG = {
-            user: Queue(maxsize=queue_size) for user in modified_message_backlog
-        }
-        [
-            MESSAGE_BACKLOG[user].put(message)
-            for user, messages in modified_message_backlog.items()
-            for _, message in zip(range(queue_size), messages)
-        ]
+            MESSAGE_BACKLOG = pickle.load(f)
     except (FileNotFoundError, EOFError):
         pass
 
@@ -83,7 +74,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if context.args:
         backlog_length = int(context.args[0])
 
-    MESSAGE_BACKLOG[update.effective_chat.id] = Queue(maxsize=backlog_length)
+    MESSAGE_BACKLOG[update.effective_chat.id] = []
     update_messages_pickle()
 
     await context.bot.send_message(
@@ -116,11 +107,11 @@ async def stop(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def show_backlog(update: Update, context: ContextTypes.DEFAULT_TYPE):
     backlog = MESSAGE_BACKLOG[update.effective_chat.id]
-    if backlog.empty():
+    if not backlog:
         await context.bot.send_message(
             chat_id=update.effective_chat.id, text="I haven't seen any messages yet."
         )
-    elif backlog.qsize() < PRINT_LIMIT:
+    elif len(backlog) < PRINT_LIMIT:
         await context.bot.send_message(
             chat_id=update.effective_chat.id,
             text=f"Here's what I've seen so far:\n{format_backlog(backlog)}",
@@ -139,15 +130,15 @@ async def show_backlog(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def log(update: Update, context: ContextTypes.DEFAULT_TYPE):
     backlog = MESSAGE_BACKLOG[update.effective_chat.id]
-    if backlog.full():
-        backlog.get()
+    while len(backlog) > BACKLOG_LENGTH:
+        del backlog[0]
 
     user = (
         update.effective_message.forward_from.name
         if update.effective_message.forward_from is not None
         else update.effective_user.name
     )
-    backlog.put((user, update.effective_message.text))
+    backlog.append((user, update.effective_message.text))
     update_messages_pickle()
 
     logging.info(
@@ -157,7 +148,7 @@ async def log(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def clear(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    MESSAGE_BACKLOG[update.effective_chat.id].queue.clear()
+    MESSAGE_BACKLOG[update.effective_chat.id] = []
     update_messages_pickle()
     await context.bot.send_message(
         chat_id=update.effective_chat.id, text="Cleared backlog."
@@ -189,7 +180,7 @@ async def summarize(update: Update, context: ContextTypes.DEFAULT_TYPE):
         + f"with id {update.effective_chat.id}"
     )
 
-    if backlog.empty():
+    if not backlog:
         await context.bot.send_message(
             chat_id=response_chat_id, text="I haven't seen any messages yet."
         )
@@ -223,7 +214,7 @@ async def summarize(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if finish_reason == "stop":  # type: ignore
             await context.bot.send_message(
                 chat_id=response_chat_id,
-                text=f"<b>Here is the summary of the last <i>{backlog.qsize()}</i> messages in {update.effective_chat.title}:</b>\n\n"
+                text=f"<b>Here is the summary of the last <i>{len(backlog)}</i> messages in {update.effective_chat.title}:</b>\n\n"
                 + f"{summary}",  # type: ignore
                 parse_mode=ParseMode.HTML,
             )
@@ -322,8 +313,8 @@ async def catch_all(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
-def format_backlog(backlog: Queue):
-    return "\n".join([f"{name}: {message}" for name, message in list(backlog.queue)])
+def format_backlog(backlog: list):
+    return "\n".join([f"{name}: {message}" for name, message in backlog])
 
 
 class ListeningTo(filters.MessageFilter):
