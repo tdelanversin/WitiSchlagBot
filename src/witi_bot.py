@@ -37,7 +37,7 @@ def update_messages_pickle():
         pickle.dump(modified_message_backlog, f)
 
 
-def load_messages_pickle(queue_size=100):
+def load_messages_pickle():
     global MESSAGE_BACKLOG
     try:
         with open(MESSAGES_FILE, "rb") as f:
