@@ -35,6 +35,7 @@ def update_messages_pickle():
     }
     with open(MESSAGES_FILE, "wb") as f:
         pickle.dump(modified_message_backlog, f)
+    logging.info("Updated message backlog")
 
 
 def load_messages_pickle():
@@ -44,6 +45,7 @@ def load_messages_pickle():
             MESSAGE_BACKLOG = pickle.load(f)
     except (FileNotFoundError, EOFError):
         pass
+    logging.info("Loaded message backlog")
 
 
 async def post_init(application: Application) -> None:
