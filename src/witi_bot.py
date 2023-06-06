@@ -261,7 +261,8 @@ async def prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
             {
                 "role": "system",
                 "content": f"You are a bot that listens to a conversation and "
-                + "answers any question a user has. The converation context is:\n"
+                + "answers any question a user has. "
+                + ("The converation context is:\n" if backlog else "The conversation has no context.\n")
                 + format_backlog(backlog),
             },
             {"role": "user", "content": (" ".join(context.args))},  # type: ignore
