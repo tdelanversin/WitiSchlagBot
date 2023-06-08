@@ -161,6 +161,50 @@ async def clear(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
+async def prompt_openai(
+    response_chat_id,
+    context: ContextTypes.DEFAULT_TYPE,
+    prompt: str,
+    engine: str = "gpt-3.5-turbo",
+):
+    try:
+        response = openai.ChatCompletion.create(
+            model=engine,
+            messages=prompt,
+        )
+
+        finish_reason = response["choices"][0]["finish_reason"]  # type: ignore
+        usage = response["usage"]["total_tokens"]  # type: ignore
+        summary = response["choices"][0]["message"]["content"]  # type: ignore
+
+        logging.info(
+            f"Finished summarizing with reason: {finish_reason}"
+            + f" and a usage: {usage} total tokens"
+        )
+
+        if finish_reason == "length":  # type: ignore
+            await context.bot.send_message(
+                chat_id=response_chat_id,
+                text="I couldn't generate a summary because the chat was too long.",
+            )
+            return False, ""
+        elif finish_reason == "content_filter":  # type: ignore
+            await context.bot.send_message(
+                chat_id=response_chat_id,
+                text="I couldn't generate a summary because the chat contained sensitive content.",
+            )
+            return False, ""
+        else:
+            return True, summary
+
+    except openai.error.APIConnectionError:
+        await context.bot.send_message(
+            chat_id=response_chat_id,
+            text="I'm having trouble connecting to OpenAI's servers. "
+            + "Please try again later.",
+        )
+
+
 async def summarize(update: Update, context: ContextTypes.DEFAULT_TYPE):
     response_chat_id = update.effective_user.id
     response_language = "English"
@@ -199,36 +243,14 @@ async def summarize(update: Update, context: ContextTypes.DEFAULT_TYPE):
             {"role": "user", "content": format_backlog(backlog)},
         ]
 
-        response = openai.ChatCompletion.create(
-            model="gpt-3.5-turbo",
-            messages=chat,
-        )
+        complete_answer, response = await prompt_openai(response_chat_id, context, chat)
 
-        finish_reason = response["choices"][0]["finish_reason"]  # type: ignore
-        usage = response["usage"]["total_tokens"]  # type: ignore
-        summary = response["choices"][0]["message"]["content"]  # type: ignore
-
-        logging.info(
-            f"Finished summarizing with reason: {finish_reason}"
-            + f" and a usage: {usage} total tokens"
-        )
-
-        if finish_reason == "stop":  # type: ignore
+        if complete_answer:  # type: ignore
             await context.bot.send_message(
                 chat_id=response_chat_id,
                 text=f"<b>Here is the summary of the last <i>{len(backlog)}</i> messages in {update.effective_chat.title}:</b>\n\n"
-                + f"{summary}",  # type: ignore
+                + f"{response}",  # type: ignore
                 parse_mode=ParseMode.HTML,
-            )
-        elif finish_reason == "length":  # type: ignore
-            await context.bot.send_message(
-                chat_id=response_chat_id,
-                text="I couldn't generate a summary because the chat was too long.",
-            )
-        elif finish_reason == "content_filter":  # type: ignore
-            await context.bot.send_message(
-                chat_id=response_chat_id,
-                text="I couldn't generate a summary because the chat contained sensitive content.",
             )
 
     await context.bot.delete_message(
@@ -244,7 +266,7 @@ async def summarize(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
     backlog = MESSAGE_BACKLOG[update.effective_chat.id]
     logging.info(
-        f"Summarizing {update.effective_chat.title}"
+        f"Prompt from {update.effective_chat.title}"
         + f"with id {update.effective_chat.id}"
     )
 
@@ -262,47 +284,31 @@ async def prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "role": "system",
                 "content": f"You are a bot that listens to a conversation and "
                 + "answers any question a user has. "
-                + ("The converation context is:\n" if backlog else "The conversation has no context.\n")
+                + (
+                    "The converation context is:\n"
+                    if backlog
+                    else "The conversation has no context.\n"
+                )
                 + format_backlog(backlog),
             },
             {"role": "user", "content": (" ".join(context.args))},  # type: ignore
         ]
 
-        response = openai.ChatCompletion.create(
-            model="gpt-3.5-turbo",
-            messages=chat,
+        complete_answer, response = await prompt_openai(
+            update.effective_chat.id, context, chat
         )
 
-        finish_reason = response["choices"][0]["finish_reason"]  # type: ignore
-        usage = response["usage"]["total_tokens"]  # type: ignore
-        summary = response["choices"][0]["message"]["content"]  # type: ignore
-
-        logging.info(
-            f"Finished summarizing with reason: {finish_reason}"
-            + f" and a usage: {usage} total tokens"
-        )
-
-        if finish_reason == "stop":  # type: ignore
+        if complete_answer:  # type: ignore
             await context.bot.send_message(
                 chat_id=update.effective_chat.id,
-                text=f"{summary}",  # type: ignore
+                text=f"{response}",  # type: ignore
                 parse_mode=ParseMode.HTML,
-            )
-        elif finish_reason == "length":  # type: ignore
-            await context.bot.send_message(
-                chat_id=update.effective_chat.id,
-                text="I couldn't generate a summary because the chat was too long.",
-            )
-        elif finish_reason == "content_filter":  # type: ignore
-            await context.bot.send_message(
-                chat_id=update.effective_chat.id,
-                text="I couldn't generate a summary because the chat contained sensitive content.",
             )
 
         await context.bot.delete_message(update.effective_chat.id, temp_message.id)
 
     logging.info(
-        f"Sent summary to <{update.effective_user.name}> "
+        f"Sent promt to <{update.effective_user.name}> "
         + f"with id {update.effective_user.id}"
     )
 

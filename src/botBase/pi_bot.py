@@ -49,7 +49,7 @@ async def fetch_log(
     if update.effective_chat.id != DEVELOPER_CHAT_ID:  # type: ignore
         return
 
-    datetime_cuttoff = datetime.datetime.now() - datetime.timedelta(days=1)
+    datetime_cuttoff = datetime.datetime.now() - datetime.timedelta(hours=1)
     log_level = logging.WARNING
 
     if context.args:
@@ -96,6 +96,13 @@ async def fetch_log(
                 await context.bot.send_message(
                     chat_id=update.effective_chat.id,  # type: ignore
                     text=f"<b>{log['date']} - {log['source']} - {log['level']}:</b>\n{log['text']}",
+                )
+            except Exception as e:
+                logging.error(f"Error while sending log: {e.__class__.__name__}")
+                await context.bot.send_message(
+                    chat_id=update.effective_chat.id,  # type: ignore
+                    text=f"Error while sending log: {e}",
+                    parse_mode=ParseMode.HTML,
                 )
 
 
